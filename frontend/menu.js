@@ -39,7 +39,7 @@ export function showContextMenu(x, y, entries) {
 
 document.addEventListener("click", hideContextMenu);
 document.addEventListener("contextmenu", (e) => {
-  if (!e.target.closest(".card, .tree-node")) hideContextMenu();
+  if (!e.target.closest(".card, .tree-node, .vstrip-card")) hideContextMenu();
 });
 window.addEventListener("blur", hideContextMenu);
 document.addEventListener("keydown", (e) => {

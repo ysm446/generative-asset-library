@@ -247,17 +247,11 @@ def delete_items(body: ItemsDelete) -> dict[str, Any]:
     return {"ok": True, "deleted": deleted}
 
 
-@router.post("/items/{item_id}/reveal")
-def reveal_item(item_id: str) -> dict[str, bool]:
-    """アイテムの画像ファイルをエクスプローラーで選択表示する。"""
+def _reveal(target: Path) -> dict[str, bool]:
+    """パスをエクスプローラーで開く（ファイルなら選択表示）。"""
     import os
     import subprocess
 
-    d = _wrap(items.item_dir, item_id)
-    meta = _wrap(items.get_item, item_id)
-    target = d / (meta.get("image") or "image.png")
-    if not target.is_file():
-        target = d
     if os.name != "nt":
         raise HTTPException(status_code=400, detail="Windows のみ対応しています")
     if target.is_dir():
@@ -265,6 +259,17 @@ def reveal_item(item_id: str) -> dict[str, bool]:
     else:
         subprocess.Popen(["explorer", "/select,", str(target)])
     return {"ok": True}
+
+
+@router.post("/items/{item_id}/reveal")
+def reveal_item(item_id: str) -> dict[str, bool]:
+    """アイテムの画像ファイルをエクスプローラーで選択表示する。"""
+    d = _wrap(items.item_dir, item_id)
+    meta = _wrap(items.get_item, item_id)
+    target = d / (meta.get("image") or "image.png")
+    if not target.is_file():
+        target = d
+    return _reveal(target)
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +330,19 @@ def update_video(item_id: str, file_name: str, body: VideoUpdate) -> dict[str, A
 @router.delete("/items/{item_id}/videos/{file_name}")
 def remove_video(item_id: str, file_name: str) -> dict[str, Any]:
     return _wrap(items.remove_video, item_id, file_name)
+
+
+@router.post("/items/{item_id}/videos/{file_name}/reveal")
+def reveal_video(item_id: str, file_name: str) -> dict[str, bool]:
+    """動画ファイルをエクスプローラーで選択表示する。"""
+    d = _wrap(items.item_dir, item_id)
+    name = file_name.replace("\\", "/").split("/")[-1]
+    target = (d / paths.VIDEOS_DIR_NAME / name).resolve()
+    if d.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="video not found")
+    return _reveal(target)
 
 
 class VideosDelete(BaseModel):

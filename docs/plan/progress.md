@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-07-24 16:25
+更新日時: 2026-07-25 10:40
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -217,6 +217,19 @@ Image Assistant は、初期の Gradio / A1111 想定から、Electron UI + Fast
 - 検証: `node --check frontend/app.js`、テスト用サーバー＋ヘッドレス Chrome で
   localStorage を仕込んだスクリーンショットにより画像 NEW（青）・動画 NEW（琥珀）の
   両表示とルートへのロールアップを確認。フロントのみの変更のため Ctrl+R で反映可能。
+
+### 動画サムネイルの右クリックメニュー（2026-07-25）
+
+- 下部の動画ストリップのサムネイルに右クリックメニューを追加した（「ファイルの場所を開く」
+  「削除」。複数選択中のサムネイルを右クリックした場合は「選択した N 件を削除」）。
+  動画のプロパティパネルにも「ファイルの場所を開く」ボタンを追加した。
+- サーバー側は `POST /api/library/items/{item_id}/videos/{file_name}/reveal` を追加。
+  画像側の reveal と共通の `_reveal()` に切り出した（Windows のみ、`explorer /select,`）。
+  `file_name` はベース名に丸めてから `videos/` 配下で解決するためパス脱出はしない。
+- `frontend/menu.js` の「メニューを閉じない要素」の判定に `.vstrip-card` を追加した。
+- 検証: `node --check frontend/app.js` / `frontend/menu.js`、一時ライブラリ＋
+  TestClient で reveal API（正常・存在しないファイル 404・パス脱出 404）と
+  一括削除の非退行を確認、`tests/test_library_core.py` 通過。サーバー変更を含むため再起動が必要。
 
 ## 確認済みの補足
 

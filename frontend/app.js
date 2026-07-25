@@ -952,6 +952,36 @@ function renderVideoStrip() {
       card.appendChild(makeNewBadge(true));
     }
     card.addEventListener("click", (e) => handleVideoClick(v.file, index, e));
+    card.addEventListener("contextmenu", async (e) => {
+      e.preventDefault();
+      // 複数選択されていて右クリックがその中なら選択を維持、そうでなければ単一選択に
+      if (!state.selectedVideoFiles.has(v.file)) await handleVideoClick(v.file, index, {});
+      const files = [...state.selectedVideoFiles];
+      const entries = [];
+      if (files.length > 1) {
+        entries.push({
+          icon: "trash",
+          label: `選択した ${files.length} 件を削除`,
+          danger: true,
+          action: () => bulkDeleteVideos(item.id, files),
+        });
+      } else {
+        entries.push(
+          {
+            icon: "folder-open",
+            label: "ファイルの場所を開く",
+            action: () => revealVideo(item.id, v.file),
+          },
+          {
+            icon: "trash",
+            label: "削除",
+            danger: true,
+            action: () => bulkDeleteVideos(item.id, [v.file]),
+          }
+        );
+      }
+      showContextMenu(e.clientX, e.clientY, entries);
+    });
     list.appendChild(card);
   });
 }
@@ -1013,6 +1043,18 @@ async function deleteItemById(itemId, videoCount = 0) {
     state.selectedIds.delete(itemId);
     await refresh();
   }, "画像を削除しました");
+}
+
+// 動画ファイルをエクスプローラーで選択表示する（file は "videos/vNNN.mp4"）
+async function revealVideo(itemId, file) {
+  const name = file.replace(/\\/g, "/").split("/").pop();
+  await run(
+    () =>
+      api(`/api/library/items/${itemId}/videos/${encodeURIComponent(name)}/reveal`, {
+        method: "POST",
+      }),
+    "エクスプローラーで開きました"
+  );
 }
 
 async function revealItem(itemId) {
@@ -2587,6 +2629,11 @@ function renderVideoPropsContext(el, item, v) {
 
   el.appendChild(btnRow);
   el.appendChild(genStatusLine());
+
+  const revealBtn = document.createElement("button");
+  setIconLabel(revealBtn, "folder-open", "ファイルの場所を開く");
+  revealBtn.addEventListener("click", () => revealVideo(item.id, v.file));
+  el.appendChild(revealBtn);
 
   const del = document.createElement("button");
   del.className = "danger";
