@@ -419,7 +419,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-dim);
 }

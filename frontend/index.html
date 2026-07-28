@@ -88,15 +88,11 @@
     <main class="panes" id="view-library">
       <!-- 左: フォルダツリー -->
       <aside class="pane pane-tree">
-        <div class="pane-toolbar">
-          <button type="button" id="btn-folder-new" title="選択フォルダ内に新規フォルダ">＋</button>
-          <button type="button" id="btn-folder-open" title="選択中のフォルダをエクスプローラーで開く" data-icon="folder-open"></button>
-        </div>
-        <div id="tree" class="tree"></div>
         <div class="root-bar">
           <span id="root-path"></span>
           <button type="button" id="btn-root" title="ライブラリの保存先フォルダを変更（Shift+クリックで既定の data/library に戻す）" data-icon="folder-open"></button>
         </div>
+        <div id="tree" class="tree"></div>
       </aside>
 
       <div class="pane-resizer" data-resize="left" title="ドラッグで幅を調整"></div>
@@ -184,16 +180,14 @@
     <!-- スニペット編集モード -->
     <main class="panes panes-snippets" id="view-snippets" hidden>
       <aside class="pane pane-tree">
-        <div class="pane-toolbar">
-          <button type="button" id="btn-snip-new" title="新しいスニペットファイル">＋</button>
-          <button type="button" id="btn-snip-delete" title="ファイルを削除" data-icon="trash"></button>
-          <button type="button" id="btn-snip-reveal" title="スニペットフォルダを開く" data-icon="folder-open"></button>
-        </div>
-        <div id="snip-files" class="tree"></div>
         <div class="root-bar">
           <span id="snip-root"></span>
           <button type="button" id="btn-snip-root" title="スニペットフォルダを変更" data-icon="folder"></button>
         </div>
+        <div class="pane-toolbar">
+          <button type="button" id="btn-snip-new" title="新しいスニペットファイル">＋</button>
+        </div>
+        <div id="snip-files" class="tree"></div>
       </aside>
 
       <aside class="pane pane-snip-entries">

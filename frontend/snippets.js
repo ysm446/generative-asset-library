@@ -222,8 +222,18 @@ function renderFiles() {
 function showFileMenu(x, y, path) {
   showContextMenu(x, y, [
     { icon: "pencil", label: "名前を変更", action: () => renameFile(path) },
+    { icon: "folder-open", label: "フォルダを開く", action: revealSnippetsFolder },
     { icon: "trash", label: "削除", danger: true, action: () => deleteFileByPath(path) },
   ]);
+}
+
+async function revealSnippetsFolder() {
+  try {
+    await api("/api/snippets/reveal", { method: "POST" });
+    setStatus("スニペットフォルダをエクスプローラーで開きました");
+  } catch (e) {
+    setStatus(`フォルダを開けません: ${e.message}`);
+  }
 }
 
 async function renameFile(path) {
@@ -608,7 +618,14 @@ export function initSnippetsView() {
     }
   });
 
-  $("#btn-snip-delete").addEventListener("click", () => deleteFileByPath(snipState.current));
+  // ファイルが 1 件も無いときでもフォルダを開けるように、一覧の余白でもメニューを出す
+  $("#snip-files").addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".tree-node")) return; // 行の上では行のメニューを優先
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, [
+      { icon: "folder-open", label: "フォルダを開く", action: revealSnippetsFolder },
+    ]);
+  });
 
   $("#btn-snip-root").addEventListener("click", async () => {
     const cur = await api("/api/snippets/root").catch(() => ({}));
@@ -631,14 +648,6 @@ export function initSnippetsView() {
     }
   });
 
-  $("#btn-snip-reveal").addEventListener("click", async () => {
-    try {
-      await api("/api/snippets/reveal", { method: "POST" });
-      setStatus("スニペットフォルダをエクスプローラーで開きました");
-    } catch (e) {
-      setStatus(`フォルダを開けません: ${e.message}`);
-    }
-  });
 }
 
 function clearSelection() {
