@@ -1,6 +1,6 @@
 # このプロジェクトで使っているシステムプロンプト
 
-このドキュメントは、Image Assistant がローカル LLM に送っている `role: "system"` の内容をまとめたものです。
+このドキュメントは、Generative Asset Library がローカル LLM に送っている `role: "system"` の内容をまとめたものです。
 
 実装箇所は [llm_client.py](../llm_client.py) です。
 

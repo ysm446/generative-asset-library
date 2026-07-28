@@ -1,13 +1,13 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-07-25 10:40
+更新日時: 2026-07-28 23:45
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
 ## 現在の状態
 
-Image Assistant は、初期の Gradio / A1111 想定から、Electron UI + FastAPI + ローカル `llama-server` + Forge / ComfyUI を組み合わせる構成へ発展している。
+Generative Asset Library は、初期の Gradio / A1111 想定から、Electron UI + FastAPI + ローカル `llama-server` + Forge / ComfyUI を組み合わせる構成へ発展している。
 
 現在は、画像生成・動画生成・AI チャット・スニペット管理・画像ライブラリがひと通り揃い、直近では画像ライブラリとライブラリ参照チャットの機能拡張が進んでいる。
 
@@ -230,6 +230,49 @@ Image Assistant は、初期の Gradio / A1111 想定から、Electron UI + Fast
 - 検証: `node --check frontend/app.js` / `frontend/menu.js`、一時ライブラリ＋
   TestClient で reveal API（正常・存在しないファイル 404・パス脱出 404）と
   一括削除の非退行を確認、`tests/test_library_core.py` 通過。サーバー変更を含むため再起動が必要。
+
+### プロンプト欄のスニペット登録済みハイライト（2026-07-28）
+
+- 画像の Prompt / Negative Prompt（生成パネル・画像プロパティの計 4 箇所）で、
+  スニペット登録済みの語に点線の下線を引くようにした。動画プロンプトには付けていない。
+- `frontend/snippet-catalog.js` を新設し、カタログ取得（`/api/snippets`）と
+  照合ロジック（セグメント分割・正規化・複数セグメント body の連結一致）を集約した。
+  自動候補（`snippet-autocomplete.js`）も同じカタログを使う。
+- 正規化で吸収するもの: 強調 `(word:1.2)` `((word))` `[word]`、`\(` エスケープ、
+  `_` と空白、大文字小文字、連続空白、カンマ前後の空け方。
+  強調の内側のカンマでは分割しないため `(masterpiece, best quality:1.2)` も 1 語として一致する。
+  下線が行末まで伸びないよう、複数セグメントの連結一致は改行をまたがない。
+- `frontend/snippet-highlight.js` は、textarea の背後に同じ文字を描いたバックドロップを敷いて
+  下線を引く（textarea は部分装飾できないため）。auto-grow で内部スクロールしない前提。
+  文字送り・余白は `getComputedStyle` で実測値を写すので CSS 変更にも追従する。
+- LLM 生成やスニペット挿入は `.value` を直接書き換えて `input` が飛ばないため、
+  対象 textarea に限って `value` setter をラップして再描画する。
+- ツールチップは、バックドロップの `pointer-events` をその場だけ有効にして
+  `elementFromPoint` で当たり判定する（入力操作は妨げない）。
+- 登録動線は右クリック →「スニペットに登録」。`dialog.js` に `showFormDialog` を追加し、
+  保存先・名前・prefix・本文・説明を指定して `POST /api/snippets/entry` で追記する。
+- `snippets.add_entry` はファイル全体を書き直さず、最後の `}` の直前にテキスト挿入する
+  （コメント・整形を保持）。追記後に JSONC として検証し、壊れる場合は保存せずエラーにする。
+- 表示の ON/OFF はラベル横のパズルアイコン。`localStorage` の `studio_snippet_highlight` に保存。
+- 検証: `node --check`（変更した JS 全て）、照合ロジックの単体確認（強調・重み・改行・
+  アンダースコア・prefix 一致・エスケープ）、`add_entry` のスモークテスト（コメント保持・
+  同名連番・新規作成・空本文エラー・末尾コメント時は壊さずエラー）、
+  ヘッドレス Chrome で重ね合わせのずれ・折り返し・トグル OFF・右クリックメニュー・
+  登録ダイアログの表示を確認、`tests/test_library_core.py` 通過。
+  サーバー変更（`/api/snippets/entry`）を含むため再起動が必要。
+
+### アプリ名を Generative Asset Library に変更（2026-07-28）
+
+- `Stable Diffusion Studio` から改名した。理由は、動画（i2v・シーケンス）を名前が拾えないことと、
+  "Stable Diffusion" が Stability AI の商標で製品名に載せたくないこと。
+- 変更したのはユーザーに見える名前だけ: `README.md` / `CLAUDE.md` / `AGENTS.md` /
+  `start.bat` / `frontend/index.html` の `<title>` / `electron/main.js` のウィンドウタイトル /
+  `electron/package.json` の name・description / `docs/` 内で現行アプリを旧名で呼んでいた箇所。
+- 内部識別子は互換性のため据え置き: ライブラリの `.studio/` フォルダ、環境変数
+  `STUDIO_LIBRARY_ROOT`、localStorage の `studio_*` キー。改名で既存ライブラリや
+  ユーザーの UI 状態を壊さないため。将来変えるなら移行処理とセットで行う。
+- 「旧 Image Assistant」という履歴の記述は事実なのでそのまま残している。
+- リポジトリのフォルダ名（`d:\GitHub\stable-diffusion-studio`）と GitHub 上のリポジトリ名は未変更。
 
 ## 確認済みの補足
 

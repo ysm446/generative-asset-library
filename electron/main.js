@@ -55,7 +55,7 @@ function createWindow() {
     useContentSize: true,
     minWidth: 900,
     minHeight: 600,
-    title: 'Stable Diffusion Studio',
+    title: 'Generative Asset Library',
     icon: iconPath,
     backgroundColor: '#1c1c1c',
     webPreferences: {

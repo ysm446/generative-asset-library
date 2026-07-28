@@ -1,7 +1,7 @@
 {
-  "name": "image-assistant",
+  "name": "generative-asset-library",
   "version": "1.0.0",
-  "description": "AI image generation assistant (Electron)",
+  "description": "Generative Asset Library (Electron)",
   "main": "main.js",
   "scripts": {
     "start": "electron ."

@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 echo ========================================
-echo  Stable Diffusion Studio
+echo  Generative Asset Library
 echo ========================================
 echo.
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-このファイルは、IMAGE ASSISTANT で作業するエージェント向けのプロジェクトルールです。
+このファイルは、Generative Asset Library で作業するエージェント向けのプロジェクトルールです。
 
 ## 基本方針
 

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-このファイルは、Stable Diffusion Studio で作業するエージェント向けのプロジェクトルールです。
+このファイルは、Generative Asset Library で作業するエージェント向けのプロジェクトルールです。
 （AGENTS.md と同じ方針。Claude Code 向けに現行構成へ合わせて記述）
 
 ## プロジェクト概要

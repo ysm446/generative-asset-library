@@ -1,6 +1,7 @@
-# Stable Diffusion Studio
+# Generative Asset Library
 
 ライブラリを中心に据えた、画像・動画生成のデスクトップアプリです。
+生成したものを「次の生成に使える資産」として貯め、そこから作り続けることを狙っています。
 
 生成した画像はすべてライブラリ（フォルダ階層）に保存され、各画像に image-to-video の動画を紐づけて管理できます。動画はノードグラフでつないで 1 本の動画に書き出せます。旧 Image Assistant の派生プロジェクトで、Forge / ComfyUI / llama-server 連携などの部品を移植しています。
 
@@ -42,6 +43,10 @@
 - VSCode `.code-snippets` 形式で定型プロンプトを管理（`snippets/` フォルダ、UI から変更可）
 - Prompt / Negative Prompt / 動画プロンプトの入力中に prefix で自動候補を表示
   （↑↓ で選択、Tab / Enter で挿入、Esc で閉じる）。「🧩 スニペットを挿入」ボタンからも検索して挿入可
+- 画像の Prompt / Negative Prompt では、**スニペット登録済みの語に点線の下線**が付く
+  （強調 `(word:1.2)`・アンダースコア・大文字小文字の違いは吸収）。
+  マウスオーバーでスニペット名を表示し、ラベル横のパズルアイコンで表示を切り替えられる。
+  下線のない語は右クリックから「スニペットに登録」でその場で追加できる
 - 「スニペット」タブで編集：ファイル一覧 / 項目一覧（全ファイル横断検索）/
   フォーム編集（Name・Prefix・Description・Body）。生 JSON の直接編集にも切り替え可。Ctrl+S で保存
 
@@ -97,7 +102,8 @@ server/            FastAPI バックエンド
   routes/          API（library / generation / sequences / llm / status）
   main.py          エントリポイント（ルーティング・起動/終了処理）
 frontend/          UI（vanilla JS、ビルド不要。app.js / sequence.js / snippets.js /
-                   snippet-autocomplete.js / dialog.js）
+                   snippet-autocomplete.js / snippet-catalog.js / snippet-highlight.js /
+                   dialog.js）
 electron/          デスクトップシェル
 workflows/         ComfyUI ワークフロー（image/ video/）
 models/            GGUF モデル（LLM / embedding、任意）

@@ -47,7 +47,7 @@
 
 ### 5. スニペットの移植
 
-- 旧 Image Assistant（`legacy/`）のスニペット管理機能を Stable Diffusion Studio へ移植する。
+- 旧 Image Assistant（`legacy/`）のスニペット管理機能を Generative Asset Library へ移植する。
 - `snippets/` 配下の `.code-snippets` 資産を現行アプリから利用できるようにする。
 
 ## 中期予定
