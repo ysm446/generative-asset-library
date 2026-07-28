@@ -60,7 +60,8 @@
 - Ctrl+S で表示中のシーケンスを保存
 
 ### その他
-- 上部バーに Forge / ComfyUI / LLM / Embedding の起動状態インジケーター
+- 上部バーに Forge / ComfyUI / LLM / Embedding の起動状態インジケーター。
+  クリックで起動 / 停止（停止は確認あり。外部プロセスを使う設定のものは操作不可）
 - 下部ステータスバーにシステムリソース（CPU / RAM / GPU / VRAM）
 - アプリ終了時に VRAM を解放
 

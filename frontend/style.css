@@ -243,18 +243,26 @@ body {
 .svc-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
   color: var(--text-dim);
-  padding: 2px 6px;
-  border-radius: 10px;
+  background: transparent;
+  padding: 5px 12px;
+  border-radius: 13px;
   border: 1px solid var(--border);
   white-space: nowrap;
 }
 
+/* button で描いたチップ（= アプリから起動・停止できるもの）だけ押せる見た目にする */
+button.svc-chip { cursor: pointer; }
+button.svc-chip:hover { border-color: var(--accent); background: var(--bg-hover, rgba(255, 255, 255, 0.06)); }
+button.svc-chip:active { transform: translateY(1px); }
+
 .svc-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #666;
 }
@@ -297,7 +305,7 @@ body {
 
 .svc-state {
   margin-left: 2px;
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.9;
 }
 

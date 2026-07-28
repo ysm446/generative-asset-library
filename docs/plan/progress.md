@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-07-28 23:45
+更新日時: 2026-07-29 00:45
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -273,6 +273,38 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
   ユーザーの UI 状態を壊さないため。将来変えるなら移行処理とセットで行う。
 - 「旧 Image Assistant」という履歴の記述は事実なのでそのまま残している。
 - リポジトリのフォルダ名（`d:\GitHub\stable-diffusion-studio`）と GitHub 上のリポジトリ名は未変更。
+
+### サービスチップのオン / オフとサイドバー整理（2026-07-29）
+
+- `/api/status` に `POST /api/status/{key}/start` と `/stop` を追加し、トップバーのチップ
+  （Forge / ComfyUI / LLM / Embedding）から起動・停止できるようにした。
+  - 起動は数十秒〜かかるためスレッドで実行して即座に返す。失敗理由は `_start_errors`
+    に控え、`_apply_start_error` が「停止中」を「エラー + 理由」に差し替えて表示する
+    （ready / starting になったら控えは破棄）。
+  - LLM の起動モデルは `settings.llm_model` → 名前順の先頭（`routes/llm.py` の
+    `_preferred_model` と同じ規則）。モデルが無ければ 400。
+  - 停止は同期実行（terminate はすぐ返る）。Forge / ComfyUI が外部プロセス設定
+    （`is_enabled()` が False）のときは start / stop とも 400 を返す。
+  - 各サービスに `managed` を追加。フロントは `managed: false` を `<span>`（押せない）、
+    それ以外を `<button>` として描き分ける。停止時のみ `confirm()` で確認する。
+- チップの見た目を拡大（font-size 11→12px、padding 2/6→5/12px、ドット 7→8px）。
+  `button, .btn-like` の共通スタイルはクラス指定（`.svc-chip`）が優先されるため、
+  hover / active だけ `button.svc-chip` で上書きしている。
+- ライブラリ / スニペットのルート表示（`.root-bar`）をサイドバー最下部から最上部へ移動し、
+  区切り線を `border-top` → `border-bottom` に変更。
+- ライブラリのフォルダツリーのツールバー（新規フォルダ・エクスプローラーで開く）を削除。
+  どちらも行の […] / 右クリックメニューにあるため重複していた。スニペットも同様に
+  「削除」を外し、「フォルダを開く」をファイルのメニューへ移動（ファイル 0 件のときのために
+  一覧の余白の右クリックでも出す）。「＋」新規作成のみ残した。
+- 下部ストリップの動画サムネイルのクリックで、右パネルの動画プロパティが自動再生するようにした。
+  `renderContext` は保存やリロードでも走るため、常時 autoplay ではなく `state.autoPlayVideo`
+  を「クリック時に立てて、`renderVideoPropsContext` で 1 回だけ消費する」形にしている。
+  Ctrl・Shift クリック（複数選択）と右クリック（メニュー表示）では再生しない。
+- 検証: テスト用サーバー（8799・一時ライブラリ）で `/api/status` の応答、LLM の
+  start → starting（モデルをロード中…）→ stop を実機で確認。未知キーは 404、
+  起動失敗時のエラー差し替えも確認。ヘッドレス Chrome でチップの見た目を確認。
+  `test_library_core.py` 通過。Forge / ComfyUI の実起動は未検証（要実機確認）。
+  サーバー変更のため反映には再起動が必要。
 
 ## 確認済みの補足
 

@@ -24,6 +24,7 @@ const state = {
   selectedVideoFile: null, // 下部ストリップでフォーカス中の動画 file
   selectedVideoFiles: new Set(), // 動画の複数選択（一括削除用）
   videoAnchorIndex: null, // Shift 選択の起点
+  autoPlayVideo: false, // 次の動画プロパティ表示で自動再生するか（サムネのクリック時だけ true）
   query: "",
   videoPanel: false, // 画像選択中に動画生成パネルを表示するか
   genBusy: false,
@@ -915,7 +916,7 @@ function renderVideoStrip() {
   $("#video-strip-title").textContent = videos.length
     ? selCount > 1
       ? `動画（${videos.length}）— ${selCount} 件選択中（Del で削除）`
-      : `動画（${videos.length}）— クリックでプロパティ / Ctrl・Shift で複数選択 / ドロップで追加`
+      : `動画（${videos.length}）— クリックで再生・プロパティ / Ctrl・Shift で複数選択 / ドロップで追加`
     : "この画像に動画を追加：動画ファイルをここにドロップ";
   list.innerHTML = "";
   if (videos.length === 0) {
@@ -947,7 +948,7 @@ function renderVideoStrip() {
     card.addEventListener("contextmenu", async (e) => {
       e.preventDefault();
       // 複数選択されていて右クリックがその中なら選択を維持、そうでなければ単一選択に
-      if (!state.selectedVideoFiles.has(v.file)) await handleVideoClick(v.file, index, {});
+      if (!state.selectedVideoFiles.has(v.file)) await handleVideoClick(v.file, index, {}, false);
       const files = [...state.selectedVideoFiles];
       const entries = [];
       if (files.length > 1) {
@@ -979,7 +980,9 @@ function renderVideoStrip() {
 }
 
 // 動画ストリップのクリック（修飾キーで複数選択）
-async function handleVideoClick(file, index, e) {
+async function handleVideoClick(file, index, e, autoplay = true) {
+  // 単純なクリックのときだけ右パネルで再生を始める（複数選択・右クリックでは鳴らさない）
+  state.autoPlayVideo = autoplay && !(e.shiftKey || e.ctrlKey || e.metaKey);
   // クリックで NEW 解除（画像カード側の 🎞 NEW も消えるようグリッドを更新）
   if (markVideoSeen(state.currentItem?.id ?? state.selectedId, file)) renderGrid();
   // 動画生成パネル表示中でも、動画をクリックしたらそのプロパティ表示へ切り替える
@@ -2538,6 +2541,11 @@ function renderVideoPropsContext(el, item, v) {
   video.controls = true;
   video.src = `/api/library/file/${item.id}/${v.file}`;
   el.appendChild(video);
+  // サムネイルのクリックで開いたときはそのまま再生する（1 回だけ消費する）
+  if (state.autoPlayVideo) {
+    state.autoPlayVideo = false;
+    video.play().catch(() => {}); // 自動再生がブロックされたら操作なしで放置
+  }
 
   const fileLabel = document.createElement("div");
   fileLabel.className = "palette-sub";
@@ -2676,6 +2684,9 @@ const SVC_STATES = {
   off: { cls: "is-down", text: "", label: "停止" },
 };
 
+// 稼働中（= クリックで停止できる）とみなす状態
+const svcRunning = (s) => s.ready || s.state === "starting" || s.state === "installing";
+
 async function refreshServiceStatus() {
   const container = $("#service-status");
   let busy = false;
@@ -2685,13 +2696,25 @@ async function refreshServiceStatus() {
     for (const s of res.services) {
       const state = SVC_STATES[s.state] || (s.ready ? SVC_STATES.ready : SVC_STATES.off);
       if (s.state === "starting" || s.state === "installing") busy = true;
-      const chip = document.createElement("span");
+      // 外部プロセス（管理対象外）はアプリから起動・停止できないので押せなくする
+      const managed = s.managed !== false;
+      const chip = document.createElement(managed ? "button" : "span");
       chip.className = `svc-chip ${state.cls}`;
       // 遷移中はサーバーからの詳細（例: モデルをロード中…）を優先して表示する
       const busyText = s.state === "starting" || s.state === "installing" ? s.detail || state.text : state.text;
       const stateText = busyText ? `<span class="svc-state">${busyText}</span>` : "";
       chip.innerHTML = `<span class="svc-dot"></span>${s.label}${stateText}`;
-      chip.title = `${s.label}: ${state.label}${s.detail ? ` — ${s.detail}` : ""} (${s.url})`;
+      const hint = managed
+        ? `\nクリックで${svcRunning(s) ? "停止" : "起動"}`
+        : "\n外部プロセスのため、アプリからは起動・停止できません";
+      chip.title = `${s.label}: ${state.label}${s.detail ? ` — ${s.detail}` : ""} (${s.url})${hint}`;
+      if (managed) {
+        chip.type = "button";
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation(); // コンテナのクリック（再確認）と二重に動かさない
+          toggleService(s);
+        });
+      }
       container.appendChild(chip);
     }
   } catch {
@@ -2699,6 +2722,20 @@ async function refreshServiceStatus() {
   }
   // 起動・ロードの遷移中は短い間隔で追いかけ、完了したら通常間隔に戻す
   scheduleStatusPoll(busy ? 1500 : 8000);
+}
+
+// チップのクリックでバックエンドを起動 / 停止する
+async function toggleService(s) {
+  const running = svcRunning(s);
+  if (running && !confirm(`${s.label} を停止しますか？`)) return;
+  try {
+    await api(`/api/status/${s.key}/${running ? "stop" : "start"}`, { method: "POST" });
+    setStatus(running ? `${s.label} を停止しました` : `${s.label} を起動しています…`);
+  } catch (e) {
+    setStatus(`${s.label}: ${e.message}`, true);
+  }
+  await refreshServiceStatus();
+  scheduleStatusPoll(1500); // 起動直後は状態が変わるので短い間隔で追いかける
 }
 
 function scheduleStatusPoll(delay) {
