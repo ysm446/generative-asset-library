@@ -978,6 +978,23 @@ textarea.auto-grow {
   transform-origin: 0 0;
 }
 
+/* ノードエリアに浮かべる操作ボタン（整列など） */
+.seq-canvas-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+}
+
+.seq-canvas-tools button {
+  background: var(--bg-pane);
+  opacity: 0.85;
+}
+
+.seq-canvas-tools button:hover { opacity: 1; }
+
 .seq-canvas-empty {
   position: absolute;
   top: 40%;

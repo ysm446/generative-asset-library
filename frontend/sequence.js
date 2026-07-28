@@ -584,8 +584,8 @@ function screenToGraph(clientX, clientY) {
   };
 }
 
-function fitView() {
-  const nodes = seqState.seq?.nodes || [];
+// 指定ノード（既定は全ノード）が収まるようにパン・ズームを合わせる
+function fitView(nodes = seqState.seq?.nodes || []) {
   if (!nodes.length) {
     seqState.view = { panX: 40, panY: 40, zoom: 1 };
     applyView();
@@ -607,6 +607,20 @@ function fitView() {
   seqState.view.panX = -(minX - pad) * zoom + (rect.width - w * zoom) / 2;
   seqState.view.panY = -(minY - pad) * zoom + (rect.height - h * zoom) / 2;
   applyView();
+}
+
+// 選択中のノード（範囲選択＋フォーカス中のノード）を画面いっぱいに表示する
+function focusSelectedNodes() {
+  if (!seqState.seq) return;
+  const ids = new Set(seqState.selectedNodes);
+  if (seqState.selectedNode != null) ids.add(seqState.selectedNode);
+  const nodes = seqState.seq.nodes.filter((n) => ids.has(n.id));
+  if (!nodes.length) {
+    setSeqStatus("フォーカスするノードを選択してください（クリック / 範囲選択）", true);
+    return;
+  }
+  fitView(nodes);
+  setSeqStatus(`${nodes.length} 件のノードにフォーカスしました`);
 }
 
 // ---------------------------------------------------------------------------
@@ -872,6 +886,54 @@ function removeSelectedNodes() {
   setSeqStatus(`${ids.size} 件のノードを削除しました`);
 }
 
+// ノードの整列 ---------------------------------------------------------------
+
+const ALIGN_GAP_X = 40;
+const ALIGN_GAP_Y = 40;
+
+// 順路（最長の一本道）の順、そこに乗らないノードは現在の位置（上→左）の順にする
+function alignOrder(nodes) {
+  const rank = new Map(nodeOrder(seqState.seq.nodes, seqState.seq.edges).map((id, i) => [id, i]));
+  const inChain = nodes.filter((n) => rank.has(n.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
+  const rest = nodes.filter((n) => !rank.has(n.id)).sort((a, b) => a.y - b.y || a.x - b.x);
+  return [...inChain, ...rest];
+}
+
+// 選択中なら選択ノードだけ、それ以外は全ノードを格子状に並べ直す。
+// 並べる範囲の左上は元の位置を保つので、一部だけ整列しても遠くへ飛ばない。
+function alignNodes() {
+  if (!seqState.seq || seqState.seq.nodes.length === 0) {
+    setSeqStatus("整列するノードがありません", true);
+    return;
+  }
+  const selected = seqState.seq.nodes.filter((n) => seqState.selectedNodes.has(n.id));
+  const targets = selected.length > 1 ? selected : seqState.seq.nodes;
+  if (targets.length < 2) {
+    setSeqStatus("ノードが 1 件のため整列しません");
+    return;
+  }
+  const ordered = alignOrder(targets);
+  const originX = Math.min(...targets.map((n) => n.x));
+  const originY = Math.min(...targets.map((n) => n.y));
+
+  // 1 行に並べる数は、今の表示幅に収まる数（最低 1、最大 10）
+  const rect = $("#seq-canvas").getBoundingClientRect();
+  const usable = rect.width / seqState.view.zoom - ALIGN_GAP_X;
+  const perRow = Math.max(1, Math.min(10, Math.floor(usable / (NODE_W + ALIGN_GAP_X))));
+
+  ordered.forEach((node, i) => {
+    node.x = Math.round(originX + (i % perRow) * (NODE_W + ALIGN_GAP_X));
+    node.y = Math.round(originY + Math.floor(i / perRow) * (NODE_H + ALIGN_GAP_Y));
+  });
+  renderGraph();
+  markDirty();
+  setSeqStatus(
+    selected.length > 1
+      ? `選択した ${ordered.length} 件のノードを整列しました`
+      : `${ordered.length} 件のノードを整列しました`
+  );
+}
+
 function addEdge(src, dst) {
   if (src === dst) return;
   // 一本道: src の out と dst の in は1本ずつ。既存を張り替え
@@ -946,6 +1008,8 @@ function initCanvasInteractions() {
 
   canvas.addEventListener("mousedown", (e) => {
     if (!seqState.seq) return;
+    // 浮かせている操作ボタン（整列など）は範囲選択・パンの対象にしない
+    if (e.target.closest(".seq-canvas-tools")) return;
     // 中ボタンドラッグ → パン（どこを掴んでもよい）
     if (e.button === 1) {
       e.preventDefault();
@@ -976,12 +1040,25 @@ function initCanvasInteractions() {
   // Del キー：範囲選択したノードを削除（入力中は無効）
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Delete") return;
-    if ($("#view-sequence").hidden) return;
-    const tag = (document.activeElement?.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || document.activeElement?.isContentEditable) return;
+    if (!seqShortcutAllowed()) return;
     if (!seqState.selectedNodes.size && seqState.selectedNode == null) return;
     e.preventDefault();
     removeSelectedNodes();
+  });
+
+  // F キー：選択ノードにフォーカス / A キー：全体を表示（入力中は無効）
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key !== "f" && key !== "a") return;
+    if (!seqShortcutAllowed()) return;
+    e.preventDefault();
+    if (key === "f") {
+      focusSelectedNodes();
+    } else {
+      fitView();
+      setSeqStatus("ノード全体を表示しました");
+    }
   });
 
   // Ctrl+S：表示中のシーケンスを保存（入力中でも有効）
@@ -991,6 +1068,14 @@ function initCanvasInteractions() {
     e.preventDefault();
     saveSequence();
   });
+}
+
+// シーケンス画面を表示中で、テキスト入力中でなければショートカットを受け付ける
+function seqShortcutAllowed() {
+  if ($("#view-sequence").hidden) return false;
+  const el = document.activeElement;
+  const tag = (el?.tagName || "").toLowerCase();
+  return tag !== "input" && tag !== "textarea" && tag !== "select" && !el?.isContentEditable;
 }
 
 function startPan(e) {
@@ -1060,7 +1145,9 @@ function startRubberBand(e) {
     if (box) {
       box.remove();
       if (seqState.selectedNodes.size) {
-        setSeqStatus(`${seqState.selectedNodes.size} 件のノードを選択中（ドラッグで移動 / Del で削除）`);
+        setSeqStatus(
+          `${seqState.selectedNodes.size} 件のノードを選択中（ドラッグで移動 / F でフォーカス / Del で削除）`
+        );
       }
     } else {
       // ドラッグせずクリック → 選択解除
@@ -1924,7 +2011,8 @@ export function initSequenceView() {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   });
-  $("#btn-seq-fit").addEventListener("click", fitView);
+  $("#btn-seq-fit").addEventListener("click", () => fitView()); // click イベントを引数に渡さない
+  $("#btn-seq-align").addEventListener("click", alignNodes);
   $("#btn-seq-export").addEventListener("click", exportSequence);
 
   let timer = null;

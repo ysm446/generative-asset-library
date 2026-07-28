@@ -142,7 +142,7 @@
       <section class="pane pane-seq-editor">
         <div class="pane-toolbar">
           <button type="button" id="btn-seq-play" title="順路を先頭から連続再生" data-icon="play"> 連続再生</button>
-          <button type="button" id="btn-seq-fit" title="全ノードが収まるように表示" data-icon="fit"> フィット</button>
+          <button type="button" id="btn-seq-fit" title="全ノードが収まるように表示（A キー / F キーで選択ノードにフォーカス）" data-icon="fit"> フィット</button>
           <button type="button" id="btn-seq-export" class="primary" title="順路を無劣化連結して書き出し">連結書き出し</button>
           <span id="seq-status" class="gen-status"></span>
         </div>
@@ -158,6 +158,9 @@
           </div>
         </div>
         <div id="seq-canvas" class="seq-canvas">
+          <div class="seq-canvas-tools">
+            <button type="button" id="btn-seq-align" title="ノードを整列（複数選択中は選択したノードだけ）" data-icon="grid"> 整列</button>
+          </div>
           <div id="seq-canvas-inner" class="seq-canvas-inner">
             <svg id="seq-edges" class="seq-edges"></svg>
             <div id="seq-nodes"></div>
