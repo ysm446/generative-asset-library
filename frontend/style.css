@@ -1583,6 +1583,59 @@ textarea.auto-grow {
   flex: none;
 }
 
+/* プロンプト欄の「スニペット登録済み」ハイライト。
+   textarea の中身は部分装飾できないため、同じ文字を描いた層を背後に敷いて下線を引く */
+.snippet-hl-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.snippet-hl-wrap > textarea {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+.snippet-hl-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  background: var(--bg);
+  border-style: solid;
+  border-color: transparent;
+  border-radius: 4px;
+}
+
+.snippet-hl-mark {
+  text-decoration: underline dotted var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.field label.with-hl-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.snippet-hl-toggle {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.snippet-hl-toggle:hover { background: none; }
+.snippet-hl-toggle.is-off { color: var(--text-dim); opacity: 0.6; }
+.snippet-hl-toggle .ico { width: 13px; height: 13px; }
+
 .snippet-suggest-desc {
   color: var(--text);
   font-size: 11px;
@@ -1607,6 +1660,10 @@ textarea.auto-grow {
 }
 
 .dialog-box input { width: 100%; }
+.dialog-form { min-width: 380px; gap: 10px; }
+.dialog-form .field label { margin-bottom: 3px; }
+.dialog-hint { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.dialog-error { color: var(--danger); font-size: 12px; }
 
 .dialog-buttons {
   display: flex;

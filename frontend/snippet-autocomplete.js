@@ -6,35 +6,10 @@
  * 候補は ↑↓ で選択、Tab / Enter で挿入、Esc で閉じる。
  *
  * メニュー DOM は 1 つを全 textarea で共有する（同時に開くのは 1 つのため）。
- * スニペット編集タブでの保存後は "snippets-changed" イベントでカタログを再取得する。
+ * カタログ（一覧の取得・更新）は snippet-catalog.js に集約している。
  */
 
-let catalog = null;
-let catalogPromise = null;
-
-async function loadCatalog() {
-  if (catalog) return catalog;
-  if (!catalogPromise) {
-    catalogPromise = fetch("/api/snippets")
-      .then((r) => r.json())
-      .then((data) => {
-        catalog = Array.isArray(data.snippets) ? data.snippets : [];
-        return catalog;
-      })
-      .catch(() => {
-        catalog = [];
-        return catalog;
-      })
-      .finally(() => {
-        catalogPromise = null;
-      });
-  }
-  return catalogPromise;
-}
-
-window.addEventListener("snippets-changed", () => {
-  catalog = null;
-});
+import { loadCatalog } from "/frontend/snippet-catalog.js";
 
 let menuEl = null;
 // 開いているメニューの状態。null なら非表示。

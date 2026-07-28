@@ -6,6 +6,7 @@
 import { initSequenceView, activateSequenceView } from "/frontend/sequence.js";
 import { initSnippetsView, activateSnippetsView } from "/frontend/snippets.js";
 import { attachSnippetAutocomplete } from "/frontend/snippet-autocomplete.js";
+import { attachSnippetHighlight } from "/frontend/snippet-highlight.js";
 import { showInputDialog } from "/frontend/dialog.js";
 import { showContextMenu } from "/frontend/menu.js";
 import { iconSvg, setIconLabel, applyStaticIcons } from "/frontend/icons.js";
@@ -1691,8 +1692,8 @@ function renderFolderContext(el) {
     }
   }
 
-  const promptInput = attachSnippetAutocomplete(
-    autoGrowTextarea(g.positive, (v) => (g.positive = v))
+  const promptInput = attachSnippetHighlight(
+    attachSnippetAutocomplete(autoGrowTextarea(g.positive, (v) => (g.positive = v)))
   );
   el.appendChild(labeled("Prompt", promptInput));
 
@@ -1766,7 +1767,9 @@ function renderFolderContext(el) {
   el.appendChild(
     labeled(
       "Negative Prompt",
-      attachSnippetAutocomplete(autoGrowTextarea(g.negative, (v) => (g.negative = v)))
+      attachSnippetHighlight(
+        attachSnippetAutocomplete(autoGrowTextarea(g.negative, (v) => (g.negative = v)))
+      )
     )
   );
 
@@ -2378,13 +2381,17 @@ function renderItemContext(el, item) {
   el.appendChild(
     editableField(
       "Prompt",
-      attachSnippetAutocomplete(autoGrowTextarea(d.positive, (v) => (d.positive = v)))
+      attachSnippetHighlight(
+        attachSnippetAutocomplete(autoGrowTextarea(d.positive, (v) => (d.positive = v)))
+      )
     )
   );
   el.appendChild(
     editableField(
       "Negative Prompt",
-      attachSnippetAutocomplete(autoGrowTextarea(d.negative, (v) => (d.negative = v)))
+      attachSnippetHighlight(
+        attachSnippetAutocomplete(autoGrowTextarea(d.negative, (v) => (d.negative = v)))
+      )
     )
   );
 

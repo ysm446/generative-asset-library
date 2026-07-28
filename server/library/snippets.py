@@ -192,6 +192,67 @@ def save_file(rel_path: str, content: str) -> None:
     tmp.replace(path)
 
 
+def add_entry(
+    rel_path: str,
+    name: str,
+    prefix: str,
+    body: str,
+    description: str = "",
+) -> dict[str, str]:
+    """既存ファイルの末尾に 1 エントリを追記する。
+
+    ファイル全体を書き直すとコメントや整形が失われるため、最後の ``}`` の直前に
+    テキストとして挿入する。追記後に JSONC として妥当かを検証してから保存する。
+    """
+    path = _resolve(rel_path)
+    name = (name or "").strip() or (prefix or "").strip() or "snippet"
+    body = (body or "").strip()
+    if not body:
+        raise SnippetError("本文が空です")
+
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8-sig")
+        try:
+            data = _parse_file(path)
+        except ValueError as e:
+            raise SnippetError(f"JSON として不正です: {e}")
+    else:
+        raw = "{\n}\n"
+        data = {}
+
+    key = name
+    n = 2
+    while key in data:
+        key = f"{name}_{n}"
+        n += 1
+
+    value = json.dumps(
+        {
+            "prefix": (prefix or "").strip(),
+            "body": body.split("\n"),
+            "description": (description or "").strip(),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    block = f"  {json.dumps(key, ensure_ascii=False)}: " + value.replace("\n", "\n  ")
+
+    head, brace, tail = raw.rpartition("}")
+    if not brace or tail.strip():
+        raise SnippetError("ファイルの末尾が JSON オブジェクトの形になっていません")
+    new_raw = head.rstrip() + ("," if data else "") + "\n" + block + "\n}" + (tail or "\n")
+    try:
+        json.loads(strip_jsonc_comments(new_raw))
+    except ValueError as e:
+        raise SnippetError(f"追記できませんでした（ファイル末尾のコメント等を確認してください）: {e}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(new_raw, encoding="utf-8")
+    tmp.replace(path)
+    return {"path": str(path.relative_to(snippets_dir())).replace("\\", "/"), "name": key}
+
+
 def create_file(rel_path: str) -> str:
     if not rel_path.endswith(".code-snippets"):
         rel_path += ".code-snippets"

@@ -81,6 +81,27 @@ def save_file(body: FileSave) -> dict[str, bool]:
     return {"ok": True}
 
 
+class EntryCreate(BaseModel):
+    path: str
+    name: str = ""
+    prefix: str = ""
+    body: str
+    description: str = ""
+
+
+@router.post("/entry")
+def add_entry(payload: EntryCreate) -> dict[str, str]:
+    """プロンプト欄からの「スニペットに登録」。既存ファイルの末尾に 1 件追記する。"""
+    return _wrap(
+        snippets.add_entry,
+        payload.path,
+        payload.name,
+        payload.prefix,
+        payload.body,
+        payload.description,
+    )
+
+
 class FileCreate(BaseModel):
     path: str
 
