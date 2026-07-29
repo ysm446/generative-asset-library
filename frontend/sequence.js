@@ -716,9 +716,69 @@ function renderGraph() {
       showNodeMenu(e.clientX, e.clientY, node);
     });
 
+    // パレットのクリップをノード上にドロップ → クリップ差し替え
+    setupNodeClipDrop(el, node);
+
     nodesEl.appendChild(el);
   }
   renderEdges();
+}
+
+// パレットからのクリップドラッグかどうか
+function hasClipDrag(e) {
+  return [...e.dataTransfer.types].includes("application/x-clip");
+}
+
+function readClipDrag(e) {
+  const raw = e.dataTransfer.getData("application/x-clip");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// ノードの上にクリップを落としたら、位置と接続は保ったままクリップだけ差し替える
+function setupNodeClipDrop(el, node) {
+  el.addEventListener("dragover", (e) => {
+    if (!hasClipDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    el.classList.add("is-drop-target");
+    $("#seq-canvas").classList.remove("is-drop-target");
+  });
+  el.addEventListener("dragleave", (e) => {
+    if (el.contains(e.relatedTarget)) return;
+    el.classList.remove("is-drop-target");
+  });
+  el.addEventListener("drop", (e) => {
+    if (!hasClipDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.remove("is-drop-target");
+    replaceNodeClip(node.id, readClipDrag(e));
+  });
+}
+
+function replaceNodeClip(id, clip) {
+  if (!seqState.seq || !clip || !clip.item_id || !clip.file) return;
+  const node = seqState.seq.nodes.find((n) => n.id === id);
+  if (!node) return;
+  if (node.item_id === clip.item_id && node.file === clip.file) {
+    setSeqStatus("同じクリップです");
+    return;
+  }
+  node.item_id = clip.item_id;
+  node.file = clip.file;
+  node.thumb = clip.thumb;
+  node.prompt = clip.prompt || clip.item_prompt || "";
+  node.missing = false;
+  if (seqState.playPos >= 0) stopPlayback();
+  renderGraph();
+  markDirty();
+  setSeqStatus("クリップを差し替えました");
 }
 
 // ノードの右クリックメニュー -------------------------------------------------
@@ -967,7 +1027,7 @@ function initCanvasInteractions() {
 
   // パレットからのクリップをドロップしてノード配置
   canvas.addEventListener("dragover", (e) => {
-    if ([...e.dataTransfer.types].includes("application/x-clip")) {
+    if (hasClipDrag(e)) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
       canvas.classList.add("is-drop-target");
@@ -978,15 +1038,10 @@ function initCanvasInteractions() {
   });
   canvas.addEventListener("drop", (e) => {
     canvas.classList.remove("is-drop-target");
-    const raw = e.dataTransfer.getData("application/x-clip");
-    if (!raw) return;
+    if (!hasClipDrag(e)) return;
     e.preventDefault();
-    let clip;
-    try {
-      clip = JSON.parse(raw);
-    } catch {
-      return;
-    }
+    const clip = readClipDrag(e);
+    if (!clip) return;
     const g = screenToGraph(e.clientX, e.clientY);
     addNodeAt(clip, g.x, g.y);
   });
@@ -1891,7 +1946,7 @@ function renderClipCards(container, videos, emptyMsg) {
   for (const v of videos) {
     const card = document.createElement("div");
     card.className = "palette-card";
-    card.title = "クリックで試聴 / ドラッグでノード配置";
+    card.title = "クリックで試聴 / ドラッグでノード配置（ノードの上に落とすと差し替え）";
     // ノードエリアへドラッグして配置
     card.draggable = true;
     card.addEventListener("dragstart", (e) => {
