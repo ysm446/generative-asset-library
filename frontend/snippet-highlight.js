@@ -18,7 +18,15 @@ import {
   loadCatalog,
   onCatalogChanged,
   segmentAt,
+  splitSegments,
 } from "/frontend/snippet-catalog.js";
+import {
+  hideWeightSlider,
+  isWeightSliderBusy,
+  isWeightSliderFor,
+  scheduleHideWeightSlider,
+  showWeightSlider,
+} from "/frontend/prompt-weight.js";
 
 const STORAGE_KEY = "studio_snippet_highlight";
 let enabled = localStorage.getItem(STORAGE_KEY) !== "0";
@@ -80,12 +88,21 @@ function setEnabled(value) {
 export function attachSnippetHighlight(textarea) {
   if (!textarea || textarea.dataset.snippetHighlight) return textarea;
   textarea.dataset.snippetHighlight = "1";
-  const inst = { ta: textarea, backdrop: null, toggle: null, ranges: [] };
+  const inst = { ta: textarea, backdrop: null, toggle: null, ranges: [], segments: [] };
   instances.add(inst);
 
   textarea.addEventListener("input", () => render(inst));
-  textarea.addEventListener("mousemove", (e) => updateTooltip(e, inst));
-  textarea.addEventListener("mouseleave", () => (textarea.title = ""));
+  textarea.addEventListener("mousemove", (e) => onMouseMove(e, inst));
+  textarea.addEventListener("mouseleave", () => {
+    textarea.title = "";
+    clearTimeout(inst.weightTimer);
+    scheduleHideWeightSlider();
+  });
+  // 入力を始めたらスライダーは邪魔なので閉じる
+  textarea.addEventListener("keydown", () => {
+    clearTimeout(inst.weightTimer);
+    hideWeightSlider(true);
+  });
   textarea.addEventListener("contextmenu", (e) => onContextMenu(e, inst));
   // LLM 生成やスニペット挿入は .value を直接書き換える（input が飛ばない）ため、
   // この textarea に限って setter をラップして再描画する
@@ -159,60 +176,97 @@ function hookValueSetter(ta, onChange) {
 
 // ------------------------------------------------------------------- 描画
 
-function clearBackdrop(inst) {
-  inst.ranges = [];
-  inst.backdrop.textContent = "";
-  inst.ta.title = "";
-}
-
 async function render(inst) {
   const { ta, backdrop } = inst;
   if (!backdrop) return;
   // カタログ取得待ちの間に入力やトグルがあっても、古い結果で塗り直さない
   const renderId = (inst.renderId = (inst.renderId || 0) + 1);
-  if (!enabled) return clearBackdrop(inst);
-  const items = await loadCatalog();
-  if (renderId !== inst.renderId) return;
-  if (!enabled) return clearBackdrop(inst);
   const text = ta.value;
-  const ranges = findRegisteredRanges(text, items);
+  const segments = splitSegments(text);
+  inst.segments = segments;
+  let ranges = [];
+  if (enabled) {
+    const items = await loadCatalog();
+    if (renderId !== inst.renderId) return;
+    if (enabled) ranges = findRegisteredRanges(text, items);
+  }
   inst.ranges = ranges;
+
+  // 語ごとに span を敷く（強調スライダーの当たり判定に使う）。
+  // 登録済みの範囲はセグメント境界に揃うので、下線の span で外側から包める。
   let html = "";
   let pos = 0;
-  for (const r of ranges) {
-    html += escapeHtml(text.slice(pos, r.start));
-    html += `<span class="snippet-hl-mark">${escapeHtml(text.slice(r.start, r.end))}</span>`;
-    pos = r.end;
-  }
+  let ri = 0;
+  let openMark = false;
+  segments.forEach((seg, i) => {
+    html += escapeHtml(text.slice(pos, seg.start));
+    if (!openMark && ri < ranges.length && ranges[ri].start === seg.start) {
+      html += '<span class="snippet-hl-mark">';
+      openMark = true;
+    }
+    html += `<span class="snippet-hl-seg" data-seg="${i}">${escapeHtml(seg.text)}</span>`;
+    if (openMark && ranges[ri].end === seg.end) {
+      html += "</span>";
+      openMark = false;
+      ri++;
+    }
+    pos = seg.end;
+  });
+  if (openMark) html += "</span>";
   // 末尾の改行は表示上つぶれるので 1 文字足しておく
   html += escapeHtml(text.slice(pos)) + "\n";
   backdrop.innerHTML = html;
 }
 
-// バックドロップは pointer-events: none なので、その場だけ当たり判定を有効にして
-// マウス位置の語を調べる（同期処理なので入力操作には影響しない）
-function markAtPoint(inst, x, y) {
-  if (!inst.backdrop || inst.ranges.length === 0) return null;
-  inst.backdrop.style.pointerEvents = "auto";
-  const el = document.elementFromPoint(x, y);
-  inst.backdrop.style.pointerEvents = "";
-  if (!el || !el.classList.contains("snippet-hl-mark")) return null;
-  const marks = [...inst.backdrop.querySelectorAll(".snippet-hl-mark")];
-  const range = inst.ranges[marks.indexOf(el)];
-  return range || null;
+// バックドロップは textarea の下（z-index）にあるので elementFromPoint では拾えない。
+// 語の span の実測矩形にマウス位置が入っているかで判定する。
+function hitAtPoint(inst, x, y) {
+  if (!inst.backdrop) return null;
+  const spans = inst.backdrop.querySelectorAll(".snippet-hl-seg");
+  for (const span of spans) {
+    for (const rect of span.getClientRects()) {
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        const seg = inst.segments[parseInt(span.dataset.seg, 10)];
+        if (!seg) return null;
+        const markEl = span.closest(".snippet-hl-mark");
+        const marks = markEl ? [...inst.backdrop.querySelectorAll(".snippet-hl-mark")] : [];
+        return { seg, rect, item: markEl ? inst.ranges[marks.indexOf(markEl)]?.item : null };
+      }
+    }
+  }
+  return null;
 }
 
-function updateTooltip(event, inst) {
-  const hit = markAtPoint(inst, event.clientX, event.clientY);
-  if (!hit) {
+function updateTooltip(inst, hit) {
+  const item = hit?.item;
+  if (!item) {
     if (inst.ta.title) inst.ta.title = "";
     return;
   }
-  const item = hit.item;
   const source = (item.source || "").replace(".code-snippets", "");
   const label = [item.name, item.description].filter(Boolean).join(" — ");
   const title = `登録済み: ${label || item.prefix}${source ? `（${source}）` : ""}`;
   if (inst.ta.title !== title) inst.ta.title = title;
+}
+
+// マウス位置の語に強調スライダーを出す（少し待ってから出して、なぞっただけでは出さない）
+function updateWeightSlider(inst, hit) {
+  clearTimeout(inst.weightTimer);
+  if (!hit) {
+    if (!isWeightSliderBusy()) scheduleHideWeightSlider();
+    return;
+  }
+  if (isWeightSliderFor(inst.ta, hit.seg.start)) return;
+  inst.weightTimer = setTimeout(() => {
+    showWeightSlider({ ta: inst.ta, seg: hit.seg, rect: hit.rect });
+  }, 180);
+}
+
+function onMouseMove(event, inst) {
+  if (event.buttons !== 0) return; // 範囲選択のドラッグ中は触らない
+  const hit = hitAtPoint(inst, event.clientX, event.clientY);
+  updateTooltip(inst, hit);
+  updateWeightSlider(inst, hit);
 }
 
 // ------------------------------------------------------- 右クリックからの登録
@@ -224,7 +278,8 @@ function onContextMenu(event, inst) {
   if (ta.selectionStart !== ta.selectionEnd) {
     body = ta.value.slice(ta.selectionStart, ta.selectionEnd).trim();
   } else {
-    if (markAtPoint(inst, event.clientX, event.clientY)) return; // 登録済みなら何も出さない
+    // 登録済みの語なら何も出さない
+    if (hitAtPoint(inst, event.clientX, event.clientY)?.item) return;
     body = segmentAt(ta.value, ta.selectionStart ?? 0)?.text || "";
   }
   if (!body) return;
