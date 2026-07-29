@@ -684,6 +684,32 @@ button.svc-chip:active { transform: translateY(1px); }
   background: #111;
 }
 
+/* 動画プレビュー下の操作列（繰り返し再生トグル＋ファイル名） */
+.video-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-loop-toggle {
+  flex: none;
+  width: 30px;
+  padding: 3px 0;
+}
+
+.video-loop-toggle.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.video-preview-bar .palette-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 生成パネル上部の基準画像 */
 .gen-ref[hidden] { display: none; }
 

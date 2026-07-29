@@ -1582,6 +1582,15 @@ function setSectionOpen(key, open) {
   localStorage.setItem(SECTION_OPEN_KEY, JSON.stringify(map));
 }
 
+// 動画プレビューの繰り返し再生。パネルを開き直しても引き継ぐ
+const VIDEO_LOOP_KEY = "studio_video_loop";
+let videoLoop = localStorage.getItem(VIDEO_LOOP_KEY) === "1";
+
+function setVideoLoop(on) {
+  videoLoop = on;
+  localStorage.setItem(VIDEO_LOOP_KEY, on ? "1" : "0");
+}
+
 /**
  * まとめて開閉できるセクション。閉じているときは summary に現在値を並べて出すので、
  * 畳んだままでも設定が分かる。fields は labeled(...) などの要素の配列。
@@ -2603,6 +2612,7 @@ function renderVideoPropsContext(el, item, v) {
   const video = document.createElement("video");
   video.className = "preview";
   video.controls = true;
+  video.loop = videoLoop;
   video.src = `/api/library/file/${item.id}/${v.file}`;
   el.appendChild(video);
   // サムネイルのクリックで開いたときはそのまま再生する（1 回だけ消費する）
@@ -2611,10 +2621,30 @@ function renderVideoPropsContext(el, item, v) {
     video.play().catch(() => {}); // 自動再生がブロックされたら操作なしで放置
   }
 
+  const bar = document.createElement("div");
+  bar.className = "video-preview-bar";
+
+  // 繰り返し再生の切り替え（設定は次に開いたときも引き継ぐ）
+  const loopBtn = document.createElement("button");
+  loopBtn.className = "video-loop-toggle";
+  setIconLabel(loopBtn, "repeat");
+  const applyLoopBtn = () => {
+    loopBtn.classList.toggle("is-active", videoLoop);
+    loopBtn.title = videoLoop ? "繰り返し再生: ON" : "繰り返し再生: OFF";
+  };
+  applyLoopBtn();
+  loopBtn.addEventListener("click", () => {
+    setVideoLoop(!videoLoop);
+    video.loop = videoLoop;
+    applyLoopBtn();
+  });
+  bar.appendChild(loopBtn);
+
   const fileLabel = document.createElement("div");
   fileLabel.className = "palette-sub";
   fileLabel.textContent = `${v.file}　${(v.created_at || "").replace("T", " ").slice(0, 16)}`;
-  el.appendChild(fileLabel);
+  bar.appendChild(fileLabel);
+  el.appendChild(bar);
 
   // 選択した時点で編集できる生成フォーム。この動画の設定を初期値にする
   const vs = v.settings || {};
