@@ -22,9 +22,11 @@ import {
 } from "/frontend/snippet-catalog.js";
 import {
   hideWeightSlider,
+  isWeightEnabled,
   isWeightSliderBusy,
   isWeightSliderFor,
   scheduleHideWeightSlider,
+  setWeightEnabled,
   showWeightSlider,
 } from "/frontend/prompt-weight.js";
 
@@ -83,6 +85,13 @@ function setEnabled(value) {
   }
 }
 
+// 強調スライダーのオン / オフ（状態は prompt-weight.js が持つ）
+function toggleWeight() {
+  setWeightEnabled(!isWeightEnabled());
+  sweep();
+  for (const inst of instances) updateWeightToggle(inst);
+}
+
 // --------------------------------------------------------------- セットアップ
 
 export function attachSnippetHighlight(textarea) {
@@ -132,15 +141,24 @@ function setup(inst) {
 
   const label = wrap.closest(".field")?.querySelector(":scope > label");
   if (label && !label.querySelector(".snippet-hl-toggle")) {
+    label.classList.add("with-hl-toggle");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "snippet-hl-toggle";
     setIconLabel(btn, "puzzle");
     btn.addEventListener("click", () => setEnabled(!enabled));
-    label.classList.add("with-hl-toggle");
     label.appendChild(btn);
     inst.toggle = btn;
     updateToggle(inst);
+
+    const wbtn = document.createElement("button");
+    wbtn.type = "button";
+    wbtn.className = "snippet-hl-toggle prompt-weight-toggle";
+    setIconLabel(wbtn, "sliders");
+    wbtn.addEventListener("click", toggleWeight);
+    label.appendChild(wbtn);
+    inst.weightToggle = wbtn;
+    updateWeightToggle(inst);
   }
   render(inst);
 }
@@ -157,6 +175,15 @@ function updateToggle(inst) {
   inst.toggle.title = enabled
     ? "スニペット登録済みの語に引く下線を隠す"
     : "スニペット登録済みの語に下線を引く";
+}
+
+function updateWeightToggle(inst) {
+  if (!inst.weightToggle) return;
+  const on = isWeightEnabled();
+  inst.weightToggle.classList.toggle("is-off", !on);
+  inst.weightToggle.title = on
+    ? "語にマウスを載せたときの強調スライダーを出さない"
+    : "語にマウスを載せたら強調スライダーを出す";
 }
 
 function hookValueSetter(ta, onChange) {
@@ -252,6 +279,7 @@ function updateTooltip(inst, hit) {
 // マウス位置の語に強調スライダーを出す（少し待ってから出して、なぞっただけでは出さない）
 function updateWeightSlider(inst, hit) {
   clearTimeout(inst.weightTimer);
+  if (!isWeightEnabled()) return;
   if (!hit) {
     if (!isWeightSliderBusy()) scheduleHideWeightSlider();
     return;

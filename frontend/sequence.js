@@ -9,6 +9,7 @@
 import { showInputDialog } from "/frontend/dialog.js";
 import { showContextMenu } from "/frontend/menu.js";
 import { iconSvg, setIconLabel } from "/frontend/icons.js";
+import { attachRangeFill } from "/frontend/range-input.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1583,6 +1584,7 @@ function renderBgm() {
     vol.step = "0.05";
     vol.value = cur.volume ?? 0.8;
     vol.title = "BGM 音量";
+    attachRangeFill(vol);
     vol.addEventListener("input", () => {
       const audio = $("#seq-bgm-audio");
       audio.volume = parseFloat(vol.value);

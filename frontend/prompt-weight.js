@@ -13,10 +13,25 @@
  */
 
 import { setIconLabel } from "/frontend/icons.js";
+import { syncRangeFill } from "/frontend/range-input.js";
 
 export const WEIGHT_MIN = 0;
 export const WEIGHT_MAX = 2;
 export const WEIGHT_STEP = 0.05;
+
+// 表示のオン / オフ（ラベル横のトグル。リロード後も保持する）
+const STORAGE_KEY = "studio_prompt_weight";
+let enabled = localStorage.getItem(STORAGE_KEY) !== "0";
+
+export function isWeightEnabled() {
+  return enabled;
+}
+
+export function setWeightEnabled(value) {
+  enabled = !!value;
+  localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
+  if (!enabled) hideWeightSlider(true);
+}
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const near = (a, b) => Math.abs(a - b) < 0.005;
@@ -184,13 +199,12 @@ function place(rect) {
 
 function showValue(w) {
   state.valueEl.textContent = near(w, 1) ? "1.0（なし）" : String(round2(w));
-  // トラックの左側だけ色を付ける（appearance: none で既定の塗りが消えるため）
-  const pct = ((w - WEIGHT_MIN) / (WEIGHT_MAX - WEIGHT_MIN)) * 100;
-  state.slider.style.setProperty("--pw-fill", `${Math.max(0, Math.min(100, pct))}%`);
+  syncRangeFill(state.slider);
 }
 
 /** 語の上にスライダーを出す。seg は `{ start, end, text }`、rect は画面上の位置。 */
 export function showWeightSlider({ ta, seg, rect }) {
+  if (!enabled) return;
   const { base, weight } = parseWeight(seg.text);
   if (!base) return;
   build();

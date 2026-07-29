@@ -1159,12 +1159,7 @@ textarea.auto-grow {
 .seq-bgm-head { font-size: 12px; color: var(--accent); }
 .seq-bgm-select { display: flex; }
 .seq-bgm-select select { flex: 1; }
-.seq-bgm input[type="range"] {
-  width: 100%;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--accent);
-}
+.seq-bgm input[type="range"] { width: 100%; }
 
 .seq-bgm-volume {
   display: flex;
@@ -1668,35 +1663,7 @@ textarea.auto-grow {
   color: var(--accent);
 }
 
-.prompt-weight-pop input[type="range"] {
-  width: 130px;
-  height: 12px; /* つまみを掴める高さ。見た目のバーはトラック側で細くする */
-  margin: 0;
-  padding: 0;
-  appearance: none;
-  background: none;
-  cursor: pointer;
-}
-
-.prompt-weight-pop input[type="range"]::-webkit-slider-runnable-track {
-  height: 3px;
-  border-radius: 2px;
-  background: linear-gradient(
-    to right,
-    var(--accent) 0 var(--pw-fill, 50%),
-    var(--border) var(--pw-fill, 50%) 100%
-  );
-}
-
-.prompt-weight-pop input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  margin-top: -3.5px; /* (3px トラック - 10px つまみ) / 2 */
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-}
+.prompt-weight-pop input[type="range"] { width: 130px; }
 
 .prompt-weight-pop .pw-value {
   min-width: 54px;
@@ -1796,6 +1763,37 @@ textarea.auto-grow {
 .context-menu-item.danger { color: var(--danger); }
 
 /* -------------------------------------------------------------- controls */
+
+/* スライダーは細いトラック + 小さいつまみで統一する。
+   左側の塗りは `--range-fill`（％）を JS 側で更新する。 */
+input[type="range"] {
+  height: 12px; /* つまみを掴める高さ。見た目のバーはトラック側で細くする */
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--range-fill, 50%),
+    var(--border) var(--range-fill, 50%) 100%
+  );
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -3.5px; /* (3px トラック - 10px つまみ) / 2 */
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+}
 
 button, .btn-like {
   background: var(--bg-hover);

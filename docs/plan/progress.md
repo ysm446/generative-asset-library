@@ -295,6 +295,12 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
   range 入力のドラッグまで止まっていた。スライダーとボタンは除外し、余白（語ラベル・数値）だけ
   preventDefault する。スライダーは `appearance: none` で細く描き直し（トラック 3px / つまみ 10px、
   当たり判定は高さ 12px）、左側の塗りは `--pw-fill` を JS から更新している。
+- スライダーの見た目（トラック 3px / つまみ 10px / 高さ 12px）は `input[type=range]` の
+  共通スタイルに切り出し、BGM 音量スライダーも同じ見た目にした。左側の塗りは
+  `--range-fill` を `frontend/range-input.js` の `attachRangeFill` / `syncRangeFill` が更新する。
+- ラベル横にスライダーアイコンのトグルを追加（`localStorage: studio_prompt_weight`）。
+  下線のパズルトグルとは独立で、オフにすると開いているスライダーも即座に閉じる。
+  状態は全プロンプト欄で共有（下線トグルと同じ扱い）。
 - 検証: ヘッドレス Chrome で parse / format の 24 ケース（往復変換・エスケープ・入れ子含む）と、
   hover → スライダー表示 → 0.6 / 1.1 / 1.0 の書き戻し → `input` 発火までの
   結合テスト 12 ケースが通過。ポップアップの見た目もスクリーンショットで確認。
