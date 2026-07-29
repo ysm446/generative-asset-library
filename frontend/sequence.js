@@ -9,7 +9,7 @@
 import { showInputDialog } from "/frontend/dialog.js";
 import { showContextMenu } from "/frontend/menu.js";
 import { iconSvg, setIconLabel } from "/frontend/icons.js";
-import { attachRangeFill } from "/frontend/range-input.js";
+import { attachRangeFill, syncRangeFill } from "/frontend/range-input.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1507,10 +1507,27 @@ function togglePlay() {
 // 試聴用の共有オーディオ（連打・重複再生を防ぐ）
 const previewAudio = new Audio();
 let previewName = null;
+// 試聴中の曲に付くシークバー（renderBgm のたびに作り直す）
+let previewSeek = null;
+let previewTimeLabel = null;
+let previewSeeking = false; // ドラッグ中は再生位置での上書きを止める
+
 previewAudio.addEventListener("ended", () => {
   previewName = null;
   renderBgm();
 });
+previewAudio.addEventListener("loadedmetadata", syncPreviewSeek);
+previewAudio.addEventListener("timeupdate", syncPreviewSeek);
+
+// 再生位置をシークバー・時間表示に反映する
+function syncPreviewSeek() {
+  if (!previewSeek || previewSeeking) return;
+  const dur = Number.isFinite(previewAudio.duration) ? previewAudio.duration : 0;
+  previewSeek.max = String(dur || 0);
+  previewSeek.value = String(Math.min(previewAudio.currentTime, dur || 0));
+  syncRangeFill(previewSeek);
+  previewTimeLabel.textContent = `${fmtTime(previewAudio.currentTime)} / ${fmtTime(dur)}`;
+}
 
 function bgmFileUrl(name) {
   return `/api/library/bgm/${encodeURIComponent(name)}/file`;
@@ -1605,9 +1622,14 @@ function renderBgm() {
 
   const list = document.createElement("div");
   list.className = "seq-bgm-list";
+  previewSeek = null;
+  previewTimeLabel = null;
+  previewSeeking = false;
   for (const b of seqState.bgmList) {
     const item = document.createElement("div");
     item.className = "seq-bgm-item";
+    const row = document.createElement("div");
+    row.className = "seq-bgm-item-row";
     const playing = previewName === b.name;
     const play = document.createElement("button");
     setIconLabel(play, playing ? "stop" : "play");
@@ -1630,12 +1652,56 @@ function renderBgm() {
       await api(`/api/library/bgm/${encodeURIComponent(b.name)}`, { method: "DELETE" });
       await loadBgm();
     });
-    item.append(play, name, del);
+    row.append(play, name, del);
+    item.appendChild(row);
+    // 試聴中の曲だけシークバーを出す
+    if (playing) item.appendChild(buildPreviewSeek());
     list.appendChild(item);
   }
   el.appendChild(list);
 
   setupBgmDrop(drop);
+}
+
+// 試聴中の曲のシークバー行（スライダー + 経過/全体時間）
+function buildPreviewSeek() {
+  const seekRow = document.createElement("div");
+  seekRow.className = "seq-bgm-seek";
+  const seek = document.createElement("input");
+  seek.type = "range";
+  seek.min = "0";
+  seek.max = String(Number.isFinite(previewAudio.duration) ? previewAudio.duration : 0);
+  seek.step = "0.01";
+  seek.value = String(previewAudio.currentTime || 0);
+  seek.title = "再生位置";
+  attachRangeFill(seek);
+  const time = document.createElement("span");
+  time.className = "seq-bgm-time";
+  // ドラッグ中は時間表示だけ追従させ、離した時点で実際にシークする
+  seek.addEventListener("pointerdown", () => {
+    previewSeeking = true;
+  });
+  seek.addEventListener("input", () => {
+    previewSeeking = true;
+    const dur = Number.isFinite(previewAudio.duration) ? previewAudio.duration : 0;
+    time.textContent = `${fmtTime(parseFloat(seek.value))} / ${fmtTime(dur)}`;
+  });
+  seek.addEventListener("change", () => {
+    previewAudio.currentTime = parseFloat(seek.value) || 0;
+    previewSeeking = false;
+    syncPreviewSeek();
+  });
+  // つまみを動かさずに離した場合も追従を再開させる
+  for (const ev of ["pointerup", "pointercancel"]) {
+    seek.addEventListener(ev, () => {
+      previewSeeking = false;
+    });
+  }
+  seekRow.append(seek, time);
+  previewSeek = seek;
+  previewTimeLabel = time;
+  syncPreviewSeek();
+  return seekRow;
 }
 
 function setupBgmDrop(drop) {

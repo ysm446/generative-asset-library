@@ -2,8 +2,9 @@
  * プロンプト入力欄の「スニペット登録済み」ハイライト。
  *
  * attachSnippetHighlight(textarea) を呼ぶと、textarea の背後に同じ文字を描いた
- * バックドロップを敷き、スニペットに登録済みの語だけに下線を引く。
- * （textarea の中身は部分的に装飾できないため、重ね合わせで表現する）
+ * バックドロップを敷き、スニペットに登録済みの語だけ文字色を変える。
+ * （textarea の中身は部分的に装飾できないため、textarea の文字を透明にして
+ * 　バックドロップの文字を見せる重ね合わせで表現する）
  *
  * - 対象は auto-grow な textarea（内部スクロールしない）を前提にする。
  * - ラベル脇のトグルで表示を切り替え、localStorage に保存する。
@@ -173,8 +174,8 @@ function updateToggle(inst) {
   if (!inst.toggle) return;
   inst.toggle.classList.toggle("is-off", !enabled);
   inst.toggle.title = enabled
-    ? "スニペット登録済みの語に引く下線を隠す"
-    : "スニペット登録済みの語に下線を引く";
+    ? "スニペット登録済みの語の色分けをやめる"
+    : "スニペット登録済みの語の文字色を変える";
 }
 
 function updateWeightToggle(inst) {
@@ -220,7 +221,7 @@ async function render(inst) {
   inst.ranges = ranges;
 
   // 語ごとに span を敷く（強調スライダーの当たり判定に使う）。
-  // 登録済みの範囲はセグメント境界に揃うので、下線の span で外側から包める。
+  // 登録済みの範囲はセグメント境界に揃うので、色分けの span で外側から包める。
   let html = "";
   let pos = 0;
   let ri = 0;
@@ -243,6 +244,8 @@ async function render(inst) {
   // 末尾の改行は表示上つぶれるので 1 文字足しておく
   html += escapeHtml(text.slice(pos)) + "\n";
   backdrop.innerHTML = html;
+  // 文字を見せるのはバックドロップ側なので、描き終えてから textarea を透明にする
+  backdrop.parentNode?.classList.add("is-ready");
 }
 
 // バックドロップは textarea の下（z-index）にあるので elementFromPoint では拾えない。
