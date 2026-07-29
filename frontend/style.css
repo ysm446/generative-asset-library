@@ -1082,6 +1082,11 @@ textarea.auto-grow {
 .seq-node:active { cursor: grabbing; }
 .seq-node.selected { border-color: var(--accent); }
 .seq-node.playing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+/* クリップをこのノードに落とすと差し替え */
+.seq-node.is-drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent);
+}
 .seq-node.missing {
   border: 1px dashed var(--danger);
   box-shadow: 0 0 0 1px rgba(239, 83, 80, 0.35); /* --danger の半透明 */
