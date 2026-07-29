@@ -830,9 +830,32 @@ function renderGrid() {
   });
 }
 
+/**
+ * 選択が変わっただけのときの更新。カードを作り直さず、クラスと NEW 表示だけ差し替える。
+ *
+ * 全再構築（renderGrid）でも見た目は同じになるが、ブラウザのスクロールアンカリングが
+ * 働いて表示位置が数行ぶん飛ぶことがある（カード幅の折り返しが変わった直後に起きやすい）。
+ */
+function updateGridSelection() {
+  for (const card of document.querySelectorAll("#grid .card")) {
+    const id = card.dataset.id;
+    card.classList.toggle("is-selected", state.selectedIds.has(id));
+    card.classList.toggle("is-focused", id === state.selectedId);
+    // クリックで確認済みになった NEW バッジを消す
+    if (card.classList.contains("is-new") && !newItemIds.has(id)) {
+      card.classList.remove("is-new");
+      card.querySelector(".new-badge")?.remove();
+    }
+    if (card.classList.contains("is-new-video") && !hasNewVideo(id)) {
+      card.classList.remove("is-new-video");
+      card.querySelector(".new-badge")?.remove();
+    }
+  }
+}
+
 // カードのクリック（修飾キーで複数選択）
 function handleCardClick(itemId, index, e) {
-  markItemSeen(itemId); // クリックしたら NEW 表示を解除（後続の renderGrid で反映）
+  markItemSeen(itemId); // クリックしたら NEW 表示を解除（後続の更新で反映）
   if (e.shiftKey && state.anchorIndex != null) {
     // 範囲選択
     const [a, b] = [state.anchorIndex, index].sort((x, y) => x - y);
@@ -840,7 +863,7 @@ function handleCardClick(itemId, index, e) {
     state.selectedId = itemId;
     state.currentItem = null;
     state.selectedVideoFile = null;
-    renderGrid();
+    updateGridSelection();
     renderVideoStrip();
     renderContext();
   } else if (e.ctrlKey || e.metaKey) {
@@ -854,7 +877,7 @@ function handleCardClick(itemId, index, e) {
       : [...state.selectedIds].at(-1) || null;
     state.currentItem = null;
     state.selectedVideoFile = null;
-    renderGrid();
+    updateGridSelection();
     renderVideoStrip();
     renderContext();
   } else {
@@ -894,7 +917,7 @@ async function selectItem(itemId) {
   state.currentItem = await run(() => api(`/api/library/items/${itemId}`));
   pruneNewVideos(state.currentItem); // 削除済み動画の NEW を掃除してから描画
   updateHash();
-  renderGrid();
+  updateGridSelection();
   renderVideoStrip();
   await renderContext();
 }
@@ -984,7 +1007,7 @@ async function handleVideoClick(file, index, e, autoplay = true) {
   // 単純なクリックのときだけ右パネルで再生を始める（複数選択・右クリックでは鳴らさない）
   state.autoPlayVideo = autoplay && !(e.shiftKey || e.ctrlKey || e.metaKey);
   // クリックで NEW 解除（画像カード側の 🎞 NEW も消えるようグリッドを更新）
-  if (markVideoSeen(state.currentItem?.id ?? state.selectedId, file)) renderGrid();
+  if (markVideoSeen(state.currentItem?.id ?? state.selectedId, file)) updateGridSelection();
   // 動画生成パネル表示中でも、動画をクリックしたらそのプロパティ表示へ切り替える
   // （renderContext では videoPanel が selectedVideoFile より優先されるため）
   if (state.videoPanel) {
@@ -1445,7 +1468,7 @@ function renderMultiSelectContext(el) {
   clearBtn.textContent = "選択を解除";
   clearBtn.addEventListener("click", () => {
     state.selectedIds = new Set(state.selectedId ? [state.selectedId] : []);
-    renderGrid();
+    updateGridSelection();
     renderContext();
   });
   el.appendChild(clearBtn);
@@ -3021,7 +3044,7 @@ window.addEventListener("open-library-item", async (e) => {
   await selectItem(itemId);
   const hasVideo = file && (item.videos || []).some((v) => v.file === file);
   if (hasVideo) {
-    if (markVideoSeen(itemId, file)) renderGrid();
+    if (markVideoSeen(itemId, file)) updateGridSelection();
     state.selectedVideoFile = file;
     state.selectedVideoFiles = new Set([file]);
     renderVideoStrip();

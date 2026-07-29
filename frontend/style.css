@@ -458,6 +458,9 @@ button.svc-chip:active { transform: translateY(1px); }
   gap: 10px;
   align-content: start;
   outline: none;
+  /* 再描画のたびにブラウザがスクロール位置を補正して数行ぶん飛ぶのを防ぐ
+     （列の折り返しが変わった直後に起きやすい） */
+  overflow-anchor: none;
 }
 
 .grid.is-drop-target { outline: 2px dashed var(--accent); outline-offset: -4px; }
