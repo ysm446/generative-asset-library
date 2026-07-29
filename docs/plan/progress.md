@@ -274,6 +274,18 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
 - 「旧 Image Assistant」という履歴の記述は事実なのでそのまま残している。
 - リポジトリのフォルダ名（`d:\GitHub\stable-diffusion-studio`）と GitHub 上のリポジトリ名は未変更。
 
+### 画像パラメータの開閉セクション（2026-07-29）
+
+- Width / Height / Steps / CFG / Sampler を `buildImageParamsSection(key, obj)` にまとめ、
+  生成パネル（key: "gen"）と画像プロパティ（key: "item"）の両方で同じ `<details>` を使う。
+  ComfyUI 選択時に Steps / CFG / Sampler を出さない条件は従来どおり。
+- 開閉は `collapsibleSection()`（`.params-field.section-field`）に共通化し、状態は
+  `localStorage: studio_section_open` にキー別で保存（既定は閉じる）。
+  閉じているときは summary の右に現在値の要約を出すので、畳んだままでも設定が分かる。
+- 検証: ヘッドレス Chrome で、既定で閉じている / 見出しと項目 / 開閉状態の保存と復元 /
+  画像プロパティ側も同じ構成になること / 入力が編集できることを確認（12 ケース）。
+  閉じた状態・開いた状態の見た目もスクリーンショットで確認。
+
 ### 画像選択でグリッドが勝手にスクロールする問題（2026-07-29）
 
 - 症状: ライブラリで画像を選択すると、サムネイル一覧が数行ぶん飛ぶことがある。

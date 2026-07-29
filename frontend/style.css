@@ -752,6 +752,37 @@ textarea.auto-grow {
 
 .params-field summary:hover { color: var(--text); }
 
+/* まとめて開閉するフォームのセクション（画像パラメータなど） */
+.section-field summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* 閉じているときも現在値が分かるように、右側に要約を出す */
+.section-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.section-field[open] .section-summary { visibility: hidden; }
+
+.section-body {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .params-table {
   max-height: 200px;
   overflow: auto;

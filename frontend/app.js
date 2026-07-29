@@ -1562,6 +1562,85 @@ function editableParamsField(labelText, params, open = false) {
 
 // フォーム部品ヘルパー -------------------------------------------------------
 
+// 開閉状態はパネルごとに localStorage で保持する（既定は閉じる）
+const SECTION_OPEN_KEY = "studio_section_open";
+
+function isSectionOpen(key) {
+  try {
+    return (JSON.parse(localStorage.getItem(SECTION_OPEN_KEY) || "{}") || {})[key] === true;
+  } catch {
+    return false;
+  }
+}
+
+function setSectionOpen(key, open) {
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem(SECTION_OPEN_KEY) || "{}") || {};
+  } catch {}
+  map[key] = open;
+  localStorage.setItem(SECTION_OPEN_KEY, JSON.stringify(map));
+}
+
+/**
+ * まとめて開閉できるセクション。閉じているときは summary に現在値を並べて出すので、
+ * 畳んだままでも設定が分かる。fields は labeled(...) などの要素の配列。
+ */
+function collapsibleSection(key, title, summaryText, fields) {
+  const details = document.createElement("details");
+  details.className = "params-field section-field";
+  details.open = isSectionOpen(key);
+  const summary = document.createElement("summary");
+  summary.append(title);
+  const info = document.createElement("span");
+  info.className = "section-summary";
+  info.textContent = summaryText;
+  summary.appendChild(info);
+  details.appendChild(summary);
+  const body = document.createElement("div");
+  body.className = "section-body";
+  body.append(...fields);
+  details.appendChild(body);
+  details.addEventListener("toggle", () => setSectionOpen(key, details.open));
+  return details;
+}
+
+/**
+ * Width / Height / Steps / CFG / Sampler をひとまとめにした開閉セクション。
+ * 生成パネル（key: "gen"）と画像プロパティ（key: "item"）で同じ形にする。
+ * obj は width / height / steps / cfg / sampler / backend を持つ編集用オブジェクト。
+ */
+function buildImageParamsSection(key, obj) {
+  const forge = obj.backend !== "ComfyUI"; // ComfyUI は Steps / CFG / Sampler をワークフロー側で持つ
+  const fields = [];
+
+  const size = document.createElement("div");
+  size.className = "row";
+  size.append(
+    labeled("Width", makeInput("number", obj.width, (v) => (obj.width = parseInt(v, 10) || 1024))),
+    labeled("Height", makeInput("number", obj.height, (v) => (obj.height = parseInt(v, 10) || 1024)))
+  );
+  fields.push(size);
+
+  if (forge) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.append(
+      labeled("Steps", makeInput("number", obj.steps, (v) => (obj.steps = parseInt(v, 10) || 28))),
+      labeled("CFG", makeInput("number", obj.cfg, (v) => (obj.cfg = parseFloat(v) || 7.0)))
+    );
+    fields.push(row);
+    fields.push(
+      labeled("Sampler", makeSelect(state.options.forge_samplers, obj.sampler, (v) => (obj.sampler = v)))
+    );
+  }
+
+  const summary = forge
+    ? `${obj.width}×${obj.height} / Steps ${obj.steps} / CFG ${obj.cfg} / ${obj.sampler || "-"}`
+    : `${obj.width}×${obj.height}`;
+  return collapsibleSection(`img-params-${key}`, "画像パラメータ", summary, fields);
+}
+
 function labeled(labelText, input) {
   const div = document.createElement("div");
   div.className = "field";
@@ -1790,26 +1869,7 @@ function renderFolderContext(el) {
     )
   );
 
-  const row1 = document.createElement("div");
-  row1.className = "row";
-  row1.append(
-    labeled("Width", makeInput("number", g.width, (v) => (g.width = parseInt(v, 10) || 1024))),
-    labeled("Height", makeInput("number", g.height, (v) => (g.height = parseInt(v, 10) || 1024)))
-  );
-  el.appendChild(row1);
-
-  if (g.backend !== "ComfyUI") {
-    const row2 = document.createElement("div");
-    row2.className = "row";
-    row2.append(
-      labeled("Steps", makeInput("number", g.steps, (v) => (g.steps = parseInt(v, 10) || 28))),
-      labeled("CFG", makeInput("number", g.cfg, (v) => (g.cfg = parseFloat(v) || 7.0)))
-    );
-    el.appendChild(row2);
-    el.appendChild(
-      labeled("Sampler", makeSelect(state.options.forge_samplers, g.sampler, (v) => (g.sampler = v)))
-    );
-  }
+  el.appendChild(buildImageParamsSection("gen", g));
 
   el.appendChild(
     seedField("Seed", g, () => state.lastImageSeed)
@@ -2412,26 +2472,7 @@ function renderItemContext(el, item) {
     )
   );
 
-  const row1 = document.createElement("div");
-  row1.className = "row";
-  row1.append(
-    labeled("Width", makeInput("number", d.width, (v) => (d.width = parseInt(v, 10) || 1024))),
-    labeled("Height", makeInput("number", d.height, (v) => (d.height = parseInt(v, 10) || 1024)))
-  );
-  el.appendChild(row1);
-
-  if (d.backend !== "ComfyUI") {
-    const row2 = document.createElement("div");
-    row2.className = "row";
-    row2.append(
-      labeled("Steps", makeInput("number", d.steps, (v) => (d.steps = parseInt(v, 10) || 28))),
-      labeled("CFG", makeInput("number", d.cfg, (v) => (d.cfg = parseFloat(v) || 7.0)))
-    );
-    el.appendChild(row2);
-    el.appendChild(
-      labeled("Sampler", makeSelect(state.options.forge_samplers, d.sampler, (v) => (d.sampler = v)))
-    );
-  }
+  el.appendChild(buildImageParamsSection("item", d));
 
   el.appendChild(seedField("Seed", d, () => state.lastImageSeed));
 
