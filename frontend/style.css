@@ -430,6 +430,9 @@ button.svc-chip:active { transform: translateY(1px); }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 中身（動画ストリップなど）の幅で 1fr のエリアが広がり、
+     右のパネルを画面外へ押し出さないようにする */
+  min-width: 0;
   border-right: 1px solid var(--border);
 }
 
