@@ -33,52 +33,88 @@
       <div id="queue-list" class="queue-list"></div>
     </div>
 
-    <div id="settings-panel" class="settings-panel" hidden>
-      <div class="settings-head">
-        <span>設定</span>
-        <button type="button" id="btn-settings-close" data-icon="x"></button>
-      </div>
-      <div class="settings-body">
-        <div class="settings-section">
-          <div class="settings-section-title">ライブラリ</div>
-          <div class="settings-row">
-            <div class="settings-row-main">
-              <span class="settings-label">保存先フォルダ</span>
-              <span id="settings-root-path" class="settings-value"></span>
-            </div>
-            <div class="settings-row-actions">
-              <button type="button" id="btn-root-change" data-icon="folder-open"> 変更</button>
-              <button type="button" id="btn-root-reset" title="既定の data/library に戻す">既定に戻す</button>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div class="settings-row-main">
-              <span class="settings-label">表示順</span>
-              <span class="settings-desc">グリッドの並び順を切り替えます（検索結果は関連度順のまま）</span>
-            </div>
-            <div class="settings-row-actions">
-              <button type="button" id="btn-sort-order"></button>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div class="settings-row-main">
-              <span class="settings-label">インデックス再構築</span>
-              <span class="settings-desc">全フォルダを走査してインデックスを作り直します</span>
-            </div>
-            <div class="settings-row-actions">
-              <button type="button" id="btn-reindex" data-icon="restore"> 実行</button>
-            </div>
-          </div>
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <div id="settings-panel" class="settings-panel" role="dialog" aria-modal="true" aria-label="設定">
+        <div class="settings-head">
+          <span>設定</span>
+          <button type="button" id="btn-settings-close" data-icon="x"></button>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">検索</div>
-          <div class="settings-row">
-            <div class="settings-row-main">
-              <span class="settings-label">Embedding 更新</span>
-              <span class="settings-desc">ベクトル検索用の embedding を差分更新します（embedding サーバーを起動）</span>
+        <div class="settings-main">
+          <nav id="settings-nav" class="settings-nav">
+            <button type="button" class="settings-nav-item is-active" data-category="library">ライブラリ</button>
+            <button type="button" class="settings-nav-item" data-category="image">画像生成</button>
+            <button type="button" class="settings-nav-item" data-category="search">検索</button>
+          </nav>
+          <div class="settings-body">
+            <div class="settings-section" data-category="library">
+              <div class="settings-section-title">ライブラリ</div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">保存先フォルダ</span>
+                  <span id="settings-root-path" class="settings-value"></span>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" id="btn-root-change" data-icon="folder-open"> 変更</button>
+                  <button type="button" id="btn-root-reset" title="既定の data/library に戻す">既定に戻す</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">表示順</span>
+                  <span class="settings-desc">グリッドの並び順を切り替えます（検索結果は関連度順のまま）</span>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" id="btn-sort-order"></button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">インデックス再構築</span>
+                  <span class="settings-desc">全フォルダを走査してインデックスを作り直します</span>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" id="btn-reindex" data-icon="restore"> 実行</button>
+                </div>
+              </div>
             </div>
-            <div class="settings-row-actions">
-              <button type="button" id="btn-embed" data-icon="sparkles"> 実行</button>
+            <div class="settings-section" data-category="image" hidden>
+              <div class="settings-section-title">画像生成</div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">Negative Prompt を表示</span>
+                  <span class="settings-desc">生成パネルと画像プロパティの Negative Prompt 欄を表示します</span>
+                </div>
+                <div class="settings-row-actions">
+                  <label class="settings-switch">
+                    <input type="checkbox" id="opt-show-negative">
+                    <span class="settings-switch-track"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">タグとキャプションを表示</span>
+                  <span class="settings-desc">画像プロパティのタグ・キャプション欄を表示します</span>
+                </div>
+                <div class="settings-row-actions">
+                  <label class="settings-switch">
+                    <input type="checkbox" id="opt-show-tags">
+                    <span class="settings-switch-track"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section" data-category="search" hidden>
+              <div class="settings-section-title">検索</div>
+              <div class="settings-row">
+                <div class="settings-row-main">
+                  <span class="settings-label">Embedding 更新</span>
+                  <span class="settings-desc">ベクトル検索用の embedding を差分更新します（embedding サーバーを起動）</span>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" id="btn-embed" data-icon="sparkles"> 実行</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

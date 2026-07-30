@@ -1869,14 +1869,16 @@ function renderFolderContext(el) {
   el.appendChild(simBtn);
   el.appendChild(simResults);
 
-  el.appendChild(
-    labeled(
-      "Negative Prompt",
-      attachSnippetHighlight(
-        attachSnippetAutocomplete(autoGrowTextarea(g.negative, (v) => (g.negative = v)))
+  if (showNegative) {
+    el.appendChild(
+      labeled(
+        "Negative Prompt",
+        attachSnippetHighlight(
+          attachSnippetAutocomplete(autoGrowTextarea(g.negative, (v) => (g.negative = v)))
+        )
       )
-    )
-  );
+    );
+  }
 
   el.appendChild(buildImageParamsSection("gen", g));
 
@@ -2472,14 +2474,16 @@ function renderItemContext(el, item) {
       )
     )
   );
-  el.appendChild(
-    editableField(
-      "Negative Prompt",
-      attachSnippetHighlight(
-        attachSnippetAutocomplete(autoGrowTextarea(d.negative, (v) => (d.negative = v)))
+  if (showNegative) {
+    el.appendChild(
+      editableField(
+        "Negative Prompt",
+        attachSnippetHighlight(
+          attachSnippetAutocomplete(autoGrowTextarea(d.negative, (v) => (d.negative = v)))
+        )
       )
-    )
-  );
+    );
+  }
 
   el.appendChild(buildImageParamsSection("item", d));
 
@@ -2496,13 +2500,15 @@ function renderItemContext(el, item) {
       : null;
   if (restEditor) el.appendChild(restEditor);
 
-  // タグ・キャプション
-  el.appendChild(
-    editableField("タグ（カンマ区切り）", makeInput("text", d.tags, (v) => (d.tags = v)))
-  );
-  el.appendChild(
-    editableField("キャプション", makeTextarea(d.caption, 2, (v) => (d.caption = v)))
-  );
+  // タグ・キャプション（設定で非表示にできる。値は保存時もそのまま保持する）
+  if (showTags) {
+    el.appendChild(
+      editableField("タグ（カンマ区切り）", makeInput("text", d.tags, (v) => (d.tags = v)))
+    );
+    el.appendChild(
+      editableField("キャプション", makeTextarea(d.caption, 2, (v) => (d.caption = v)))
+    );
+  }
 
   // 編集中の値から params を組み立てる（保存・生成で共用）
   const buildParams = () => {
@@ -2974,6 +2980,7 @@ async function changeLibraryRoot(reset = false) {
   await run(async () => {
     const res = await apiJson("/api/library/root", "POST", { path });
     await loadRoot();
+    await loadTree(); // 切替後は階層が変わるのでツリーを取り直す
     await selectFolder("");
     setStatus(`ライブラリの保存先を変更しました: ${res.root}（${res.indexed} 件をインデックス）`);
   });
@@ -3033,21 +3040,54 @@ for (const tab of document.querySelectorAll(".topbar-tab")) {
 initSequenceView();
 initSnippetsView();
 
-// 設定パネルの開閉
+// 設定ダイアログ（中央モーダル）の開閉 --------------------------------------
+
+function setSettingsOpen(open) {
+  $("#settings-overlay").hidden = !open;
+}
+
 $("#btn-settings").addEventListener("click", () => {
-  const panel = $("#settings-panel");
-  panel.hidden = !panel.hidden;
+  setSettingsOpen($("#settings-overlay").hidden);
 });
-$("#btn-settings-close").addEventListener("click", () => {
-  $("#settings-panel").hidden = true;
+$("#btn-settings-close").addEventListener("click", () => setSettingsOpen(false));
+// 背景（オーバーレイ）のクリックと Escape で閉じる
+$("#settings-overlay").addEventListener("mousedown", (e) => {
+  if (e.target === e.currentTarget) setSettingsOpen(false);
 });
-// パネルの外側クリックで閉じる（歯車ボタン自体のクリックはトグルに任せる）
-document.addEventListener("click", (e) => {
-  const panel = $("#settings-panel");
-  if (!panel.hidden && !e.target.closest("#settings-panel, #btn-settings")) {
-    panel.hidden = true;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#settings-overlay").hidden) setSettingsOpen(false);
+});
+
+// カテゴリの切り替え
+function selectSettingsCategory(category) {
+  for (const btn of document.querySelectorAll(".settings-nav-item")) {
+    btn.classList.toggle("is-active", btn.dataset.category === category);
   }
-});
+  for (const sec of document.querySelectorAll(".settings-section[data-category]")) {
+    sec.hidden = sec.dataset.category !== category;
+  }
+}
+for (const btn of document.querySelectorAll(".settings-nav-item")) {
+  btn.addEventListener("click", () => selectSettingsCategory(btn.dataset.category));
+}
+
+// 表示項目のオン / オフ（画像生成カテゴリ）。既定は表示する
+const SHOW_NEGATIVE_KEY = "studio_show_negative";
+const SHOW_TAGS_KEY = "studio_show_tags";
+let showNegative = localStorage.getItem(SHOW_NEGATIVE_KEY) !== "0";
+let showTags = localStorage.getItem(SHOW_TAGS_KEY) !== "0";
+
+function initDisplayToggle(id, key, initial, apply) {
+  const input = $(id);
+  input.checked = initial;
+  input.addEventListener("change", async () => {
+    localStorage.setItem(key, input.checked ? "1" : "0");
+    apply(input.checked);
+    await renderContext();
+  });
+}
+initDisplayToggle("#opt-show-negative", SHOW_NEGATIVE_KEY, showNegative, (v) => (showNegative = v));
+initDisplayToggle("#opt-show-tags", SHOW_TAGS_KEY, showTags, (v) => (showTags = v));
 
 // 生成キューのパネル開閉
 $("#btn-queue").addEventListener("click", () => {

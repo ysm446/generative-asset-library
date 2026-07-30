@@ -17,7 +17,7 @@ import { syncRangeFill } from "/frontend/range-input.js";
 
 export const WEIGHT_MIN = 0;
 export const WEIGHT_MAX = 2;
-export const WEIGHT_STEP = 0.05;
+export const WEIGHT_STEP = 0.1;
 
 // 表示のオン / オフ（ラベル横のトグル。リロード後も保持する）
 const STORAGE_KEY = "studio_prompt_weight";

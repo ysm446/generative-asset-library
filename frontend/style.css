@@ -155,21 +155,27 @@ body {
 }
 .queue-item button { flex: none; padding: 0 6px; font-size: 11px; }
 
-/* 設定パネル */
-.settings-panel[hidden] { display: none; }
+/* 設定ダイアログ（中央モーダル） */
+.settings-overlay[hidden] { display: none; }
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  background: rgba(0, 0, 0, 0.5);
+  display: grid;
+  place-items: center;
+}
+
 .settings-panel {
-  position: absolute;
-  top: 40px;
-  right: 8px;
-  z-index: 900;
-  width: 420px;
-  max-height: 70vh;
+  width: min(680px, 92vw);
+  height: min(520px, 82vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-pane);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
 }
 
 .settings-head {
@@ -182,12 +188,82 @@ body {
 }
 .settings-head button { padding: 2px 8px; font-size: 11px; }
 
+/* 左: カテゴリ / 右: そのカテゴリの設定 */
+.settings-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 150px 1fr;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  background: none;
+}
+.settings-nav-item:hover { background: var(--bg-hover); }
+.settings-nav-item.is-active {
+  background: var(--bg-pane);
+  border-color: var(--border);
+  color: var(--accent);
+}
+
 .settings-body {
   overflow: auto;
-  padding: 10px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.settings-section[hidden] { display: none; }
+
+/* オン / オフのスイッチ */
+.settings-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.settings-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.settings-switch-track {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  transition: background 0.12s, border-color 0.12s;
+}
+.settings-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.12s, background 0.12s;
+}
+.settings-switch input:checked + .settings-switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.settings-switch input:checked + .settings-switch-track::after {
+  transform: translateX(16px);
+  background: #fff;
 }
 
 .settings-section-title {
