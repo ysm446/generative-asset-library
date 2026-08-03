@@ -856,6 +856,7 @@ function updateGridSelection() {
 // カードのクリック（修飾キーで複数選択）
 function handleCardClick(itemId, index, e) {
   markItemSeen(itemId); // クリックしたら NEW 表示を解除（後続の更新で反映）
+  $("#grid").focus({ preventScroll: true }); // 続けて矢印キーで移動できるように
   if (e.shiftKey && state.anchorIndex != null) {
     // 範囲選択
     const [a, b] = [state.anchorIndex, index].sort((x, y) => x - y);
@@ -914,7 +915,10 @@ async function selectItem(itemId) {
   state.selectedVideoFiles = new Set();
   state.videoAnchorIndex = null;
   state.videoPanel = false;
-  state.currentItem = await run(() => api(`/api/library/items/${itemId}`));
+  const item = await run(() => api(`/api/library/items/${itemId}`));
+  // 矢印キーで連続移動したとき、古い応答が新しい選択を上書きしないようにする
+  if (state.selectedId !== itemId) return;
+  state.currentItem = item;
   pruneNewVideos(state.currentItem); // 削除済み動画の NEW を掃除してから描画
   updateHash();
   updateGridSelection();
@@ -1358,6 +1362,60 @@ grid.addEventListener("drop", async (e) => {
   if (internalDragIds) return; // アプリ内ドラッグは取り込まない
   e.preventDefault();
   if (e.dataTransfer.files.length > 0) await importFiles(e.dataTransfer.files);
+});
+
+/**
+ * 矢印キーの移動先カードを返す。左右は前後のカード、上下は行の移動。
+ *
+ * 列数は決め打ちせず、カードの offsetTop / offsetLeft から求める。
+ * （カード幅の設定やパネル幅で列数が変わるうえ、最終行が欠けていても正しく動く）
+ */
+function nextCardIndex(cards, index, key) {
+  if (key === "ArrowLeft") return Math.max(0, index - 1);
+  if (key === "ArrowRight") return Math.min(cards.length - 1, index + 1);
+  const dir = key === "ArrowUp" ? -1 : 1;
+  const top = cards[index].offsetTop;
+  const left = cards[index].offsetLeft;
+  // 隣の行（＝ offsetTop が変わる最初のカード）を探す
+  let rowTop = null;
+  for (let i = index + dir; i >= 0 && i < cards.length; i += dir) {
+    if (cards[i].offsetTop !== top) {
+      rowTop = cards[i].offsetTop;
+      break;
+    }
+  }
+  if (rowTop === null) return index; // 上端 / 下端
+  // その行の中で横位置がいちばん近いカードへ
+  let best = index;
+  let bestDist = Infinity;
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].offsetTop !== rowTop) continue;
+    const dist = Math.abs(cards[i].offsetLeft - left);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// グリッドにフォーカスがあるときの矢印キー移動（選択＝フォーカスなので右パネルも追従する）
+grid.addEventListener("keydown", (e) => {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const cards = [...grid.querySelectorAll(".card")];
+  if (cards.length === 0) return;
+  e.preventDefault();
+  const current = state.selectedId
+    ? cards.findIndex((c) => c.dataset.id === state.selectedId)
+    : -1;
+  // 未選択なら最初のカードから始める
+  const next = current < 0 ? 0 : nextCardIndex(cards, current, e.key);
+  if (next === current) return;
+  const card = cards[next];
+  state.anchorIndex = next;
+  card.scrollIntoView({ block: "nearest" });
+  selectItem(card.dataset.id);
 });
 
 // Del キー：動画を選択中なら動画を、そうでなければ画像を一括削除（入力中は無効）
