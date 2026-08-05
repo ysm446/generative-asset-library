@@ -146,6 +146,7 @@ class ItemUpdate(BaseModel):
     seed: int | None = None
     params: dict[str, Any] | None = None
     tags: list[str] | None = None
+    favorite: bool | None = None
 
 
 class ItemMove(BaseModel):
@@ -163,11 +164,12 @@ def list_items(
     recursive: bool = False,
     q: str = "",
     search_mode: str = "keyword",
+    favorite_only: bool = False,
 ) -> dict[str, Any]:
     folder = _wrap(paths.normalize_rel, folder)
     query = q.strip()
     if not query:
-        return {"items": index_db.list_items(folder, recursive)}
+        return {"items": index_db.list_items(folder, recursive, favorite_only)}
 
     note = ""
     rows: list[dict[str, Any]] = []
@@ -185,6 +187,9 @@ def list_items(
             rows = index_db.search_items(query, folder)
     else:
         rows = index_db.search_items(query, folder)
+    # 検索は関連度順に並んだ結果なので、絞り込みは取得後に適用する
+    if favorite_only:
+        rows = [r for r in rows if index_db.is_favorite(r)]
     result: dict[str, Any] = {"items": rows}
     if note:
         result["note"] = note
@@ -319,6 +324,7 @@ class VideoUpdate(BaseModel):
     prompt: str | None = None
     workflow: str | None = None
     settings: dict[str, Any] | None = None
+    favorite: bool | None = None
 
 
 @router.patch("/items/{item_id}/videos/{file_name}")

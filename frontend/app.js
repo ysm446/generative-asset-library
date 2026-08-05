@@ -486,6 +486,10 @@ async function revealFolder(rel) {
 const SORT_ORDER_KEY = "studio_sort_order";
 let sortOrder = localStorage.getItem(SORT_ORDER_KEY) === "asc" ? "asc" : "desc";
 
+// お気に入りだけを表示する絞り込み。リロード後も保持する。
+const FAVORITE_ONLY_KEY = "studio_favorite_only";
+let favoriteOnly = localStorage.getItem(FAVORITE_ONLY_KEY) === "1";
+
 async function loadItems() {
   if (state.folder === null) {
     state.items = [];
@@ -497,6 +501,7 @@ async function loadItems() {
     params.set("q", state.query);
     params.set("search_mode", $("#search-mode").value);
   }
+  if (favoriteOnly) params.set("favorite_only", "true");
   const res = await api(`/api/library/items?${params}`);
   state.items = res.items;
   // 検索結果は関連度順なので反転しない
@@ -681,6 +686,46 @@ function makeNewBadge(video = false) {
   return nb;
 }
 
+/**
+ * お気に入りの★ボタン（サムネイル用）。
+ * ON なら常時金色、OFF はホバー時だけ薄く出す。クリックは選択・再生と切り離す。
+ */
+function makeFavStar(on, onToggle) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "fav-star";
+  btn.draggable = false;
+  btn.innerHTML = iconSvg("star");
+  setFavStarState(btn, on);
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onToggle();
+  });
+  return btn;
+}
+
+function setFavStarState(btn, on) {
+  btn.classList.toggle("is-on", !!on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on ? "お気に入りを外す（F）" : "お気に入りに追加（F）";
+}
+
+// 動画の件数バッジ（★付き動画があれば金色にして★を添える）
+function makeVideoBadge(item) {
+  if (!(item.video_count > 0)) return null;
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  setIconLabel(badge, "film", String(item.video_count));
+  const fav = item.fav_video_count || 0;
+  if (fav > 0) {
+    badge.classList.add("has-fav");
+    badge.title = `動画 ${item.video_count} 件（お気に入り ${fav} 件）`;
+    badge.insertAdjacentHTML("beforeend", iconSvg("star", "fav-mark"));
+  }
+  return badge;
+}
+
 function renderGrid() {
   const grid = $("#grid");
   grid.innerHTML = "";
@@ -689,9 +734,10 @@ function renderGrid() {
     return;
   }
   if (state.items.length === 0) {
-    grid.innerHTML = `<p class="grid-empty">${
-      state.query ? "検索結果がありません" : "画像がありません（右下の「取り込み」またはドラッグ＆ドロップ）"
-    }</p>`;
+    let message = "画像がありません（右下の「取り込み」またはドラッグ＆ドロップ）";
+    if (state.query) message = "検索結果がありません";
+    else if (favoriteOnly) message = "お気に入りがありません（★のみ表示中）";
+    grid.innerHTML = `<p class="grid-empty">${message}</p>`;
     return;
   }
   state.items.forEach((item, index) => {
@@ -755,12 +801,12 @@ function renderGrid() {
     img.alt = item.prompt || item.id;
     card.appendChild(img);
 
-    if (item.video_count > 0) {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      setIconLabel(badge, "film", String(item.video_count));
-      card.appendChild(badge);
-    }
+    const badge = makeVideoBadge(item);
+    if (badge) card.appendChild(badge);
+
+    card.appendChild(
+      makeFavStar(item.favorite, () => setItemsFavorite([item.id], !item.favorite))
+    );
 
     if (newItemIds.has(item.id)) {
       card.classList.add("is-new");
@@ -789,6 +835,14 @@ function renderGrid() {
       const entries = [];
       if (multi) {
         const ids = [...state.selectedIds];
+        const allFav = ids.every((id) => state.items.find((i) => i.id === id)?.favorite);
+        entries.push({
+          icon: "star",
+          label: allFav
+            ? `選択した ${ids.length} 件のお気に入りを外す`
+            : `選択した ${ids.length} 件をお気に入りに追加`,
+          action: () => setItemsFavorite(ids, !allFav),
+        });
         entries.push({
           icon: "trash",
           label: `選択した ${ids.length} 件を削除`,
@@ -797,6 +851,11 @@ function renderGrid() {
         });
       } else {
         entries.push(
+          {
+            icon: "star",
+            label: item.favorite ? "お気に入りを外す" : "お気に入りに追加",
+            action: () => setItemsFavorite([item.id], !item.favorite),
+          },
           {
             icon: "sparkles",
             label: "この設定で新規生成",
@@ -851,6 +910,69 @@ function updateGridSelection() {
       card.querySelector(".new-badge")?.remove();
     }
   }
+}
+
+/** ★と動画バッジの表示だけを差し替える（カードを作り直さない） */
+function updateGridFavorites() {
+  for (const card of document.querySelectorAll("#grid .card")) {
+    const item = state.items.find((it) => it.id === card.dataset.id);
+    if (!item) continue;
+    const star = card.querySelector(".fav-star");
+    if (star) setFavStarState(star, item.favorite);
+    card.querySelector(".badge")?.remove();
+    const badge = makeVideoBadge(item);
+    if (badge) card.appendChild(badge);
+  }
+}
+
+/** 画像のお気に入りをまとめて切り替える */
+async function setItemsFavorite(ids, on) {
+  if (!ids.length) return;
+  const ok = await run(async () => {
+    for (const id of ids) {
+      await apiJson(`/api/library/items/${id}`, "PATCH", { favorite: on });
+    }
+    return true;
+  });
+  if (!ok) return;
+  for (const id of ids) {
+    const item = state.items.find((it) => it.id === id);
+    if (item) item.favorite = on;
+    if (state.currentItem?.id === id) state.currentItem.favorite = on;
+  }
+  // ★のみ表示中は対象から外れたものを消すため読み直す
+  if (favoriteOnly) await run(loadItems);
+  else updateGridFavorites();
+  setStatus(
+    on
+      ? `${ids.length} 件をお気に入りにしました`
+      : `${ids.length} 件のお気に入りを外しました`
+  );
+}
+
+/** 動画のお気に入りをまとめて切り替える（file は "videos/vNNN.mp4"） */
+async function setVideosFavorite(itemId, files, on) {
+  if (!files.length) return;
+  const meta = await run(async () => {
+    let res = null;
+    for (const file of files) {
+      const name = file.replace(/\\/g, "/").split("/").pop();
+      res = await apiJson(
+        `/api/library/items/${itemId}/videos/${encodeURIComponent(name)}`,
+        "PATCH",
+        { favorite: on }
+      );
+    }
+    return res;
+  });
+  if (!meta) return;
+  if (state.currentItem?.id === itemId) state.currentItem = meta;
+  const item = state.items.find((it) => it.id === itemId);
+  if (item) item.fav_video_count = (meta.videos || []).filter((v) => v.favorite).length;
+  renderVideoStrip();
+  // ★のみ表示中は、★動画が無くなった画像がグリッドから外れることがある
+  if (favoriteOnly) await run(loadItems);
+  else updateGridFavorites();
 }
 
 // カードのクリック（修飾キーで複数選択）
@@ -967,6 +1089,9 @@ function renderVideoStrip() {
     label.textContent = v.prompt || v.file.split("/").pop();
     label.title = v.file;
     card.appendChild(label);
+    card.appendChild(
+      makeFavStar(v.favorite, () => setVideosFavorite(item.id, [v.file], !v.favorite))
+    );
     if (newVideoIds.has(`${item.id}/${v.file}`)) {
       card.classList.add("is-new");
       card.appendChild(makeNewBadge(true));
@@ -979,6 +1104,15 @@ function renderVideoStrip() {
       const files = [...state.selectedVideoFiles];
       const entries = [];
       if (files.length > 1) {
+        const videos = state.currentItem?.videos || [];
+        const allFav = files.every((f) => videos.find((x) => x.file === f)?.favorite);
+        entries.push({
+          icon: "star",
+          label: allFav
+            ? `選択した ${files.length} 件のお気に入りを外す`
+            : `選択した ${files.length} 件をお気に入りに追加`,
+          action: () => setVideosFavorite(item.id, files, !allFav),
+        });
         entries.push({
           icon: "trash",
           label: `選択した ${files.length} 件を削除`,
@@ -987,6 +1121,11 @@ function renderVideoStrip() {
         });
       } else {
         entries.push(
+          {
+            icon: "star",
+            label: v.favorite ? "お気に入りを外す" : "お気に入りに追加",
+            action: () => setVideosFavorite(item.id, [v.file], !v.favorite),
+          },
           {
             icon: "folder-open",
             label: "ファイルの場所を開く",
@@ -1254,6 +1393,21 @@ $("#search-mode").addEventListener("change", async () => {
   }
 });
 
+// お気に入りの絞り込み（★のみ表示）
+function updateFavFilterButton() {
+  const btn = $("#btn-fav-filter");
+  btn.classList.toggle("is-on", favoriteOnly);
+  btn.setAttribute("aria-pressed", favoriteOnly ? "true" : "false");
+}
+updateFavFilterButton();
+
+$("#btn-fav-filter").addEventListener("click", async () => {
+  favoriteOnly = !favoriteOnly;
+  localStorage.setItem(FAVORITE_ONLY_KEY, favoriteOnly ? "1" : "0");
+  updateFavFilterButton();
+  await run(loadItems);
+});
+
 // 取り込み -------------------------------------------------------------------
 
 async function importFiles(files) {
@@ -1430,6 +1584,29 @@ document.addEventListener("keydown", (e) => {
   } else if (state.selectedIds.size > 0) {
     e.preventDefault();
     bulkDelete([...state.selectedIds]);
+  }
+});
+
+// F キー：動画を選択中なら動画の、そうでなければ画像のお気に入りをまとめて切り替え
+// （すべて★なら外す／1 つでも★でなければ全部★にする）
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "f" && e.key !== "F") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (document.activeElement?.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || document.activeElement?.isContentEditable) return;
+  if ($("#view-library").hidden) return; // ライブラリタブでのみ
+  if (!$("#settings-overlay").hidden) return; // 設定を開いている間は無効
+  if (state.selectedVideoFiles.size > 0 && state.selectedId) {
+    e.preventDefault();
+    const files = [...state.selectedVideoFiles];
+    const videos = state.currentItem?.videos || [];
+    const allFav = files.every((f) => videos.find((v) => v.file === f)?.favorite);
+    setVideosFavorite(state.selectedId, files, !allFav);
+  } else if (state.selectedIds.size > 0) {
+    e.preventDefault();
+    const ids = [...state.selectedIds];
+    const allFav = ids.every((id) => state.items.find((it) => it.id === id)?.favorite);
+    setItemsFavorite(ids, !allFav);
   }
 });
 

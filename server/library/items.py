@@ -163,6 +163,8 @@ def update_item(item_id: str, fields: dict[str, Any]) -> dict[str, Any]:
     ):
         if key in fields:
             meta[key] = fields[key]
+    if "favorite" in fields:
+        meta["favorite"] = bool(fields["favorite"])
     save_meta(d, meta)
     root = paths.get_library_root()
     folder = d.parent.relative_to(root).as_posix()
@@ -279,7 +281,7 @@ def add_video(
 
 
 def update_video(item_id: str, file_name: str, fields: dict[str, Any]) -> dict[str, Any]:
-    """動画エントリのプロンプト・設定を更新する。"""
+    """動画エントリのプロンプト・設定・お気に入りを更新する。"""
     d = item_dir(item_id)
     meta = load_meta(d)
     name = file_name.replace("\\", "/").split("/")[-1]
@@ -297,6 +299,8 @@ def update_video(item_id: str, file_name: str, fields: dict[str, Any]) -> dict[s
         target["workflow"] = fields["workflow"]
     if "settings" in fields and isinstance(fields["settings"], dict):
         target["settings"] = {**(target.get("settings") or {}), **fields["settings"]}
+    if "favorite" in fields:
+        target["favorite"] = bool(fields["favorite"])
     save_meta(d, meta)
     root = paths.get_library_root()
     folder = d.parent.relative_to(root).as_posix()

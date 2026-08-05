@@ -8,6 +8,7 @@
   --text-dim: #999;
   --accent: #4fc3f7;
   --danger: #ef5350;
+  --fav: #ffc94d; /* お気に入りの★ */
 }
 
 * { box-sizing: border-box; }
@@ -654,16 +655,78 @@ button.svc-chip:active { transform: translateY(1px); }
   background: #111;
 }
 
+/* 動画の件数バッジ。右上の★ボタンとぶつからないよう左にずらす */
 .card .badge {
   position: absolute;
   top: 4px;
-  right: 4px;
+  right: 28px;
   background: rgba(0, 0, 0, 0.7);
   color: var(--accent);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 11px;
 }
+
+/* ★付き動画を持つ画像は金色のバッジで示す */
+.card .badge.has-fav { color: var(--fav); }
+.card .badge .fav-mark {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+
+/* お気に入りの★。OFF はホバー時だけ薄く出し、ON は常時金色で表示する */
+.card .fav-star,
+.vstrip-card .fav-star {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 2px;
+  line-height: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.card:hover .fav-star,
+.vstrip-card:hover .fav-star,
+.card .fav-star:focus-visible,
+.vstrip-card .fav-star:focus-visible { opacity: 0.8; }
+
+.card .fav-star:hover,
+.vstrip-card .fav-star:hover { opacity: 1; background: rgba(0, 0, 0, 0.75); }
+
+.card .fav-star.is-on,
+.vstrip-card .fav-star.is-on {
+  opacity: 1;
+  color: var(--fav);
+}
+
+.card .fav-star.is-on .ico,
+.vstrip-card .fav-star.is-on .ico { fill: currentColor; }
+
+.card .fav-star .ico,
+.vstrip-card .fav-star .ico {
+  width: 15px;
+  height: 15px;
+  vertical-align: 0;
+}
+
+/* ツールバーの「★のみ表示」トグル */
+.fav-filter {
+  padding: 3px 6px;
+  line-height: 0;
+}
+
+.fav-filter .ico { vertical-align: 0; }
+.fav-filter.is-on {
+  color: var(--fav);
+  border-color: var(--fav);
+}
+.fav-filter.is-on .ico { fill: currentColor; }
 
 .card .card-caption {
   padding: 4px 6px;

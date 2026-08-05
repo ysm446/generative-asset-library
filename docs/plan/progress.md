@@ -412,6 +412,24 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
   （最終行 2 枚）で移動先を確認。ヘッドレスブラウザが無い環境のため実機のキー操作は
   未確認。フロントのみなので Ctrl+R で反映される。
 
+### サムネイルのお気に入り（2026-08-04）
+
+- データは `meta.json` が正。画像は `favorite`（bool）、動画は `videos[].favorite`。
+  インデックスには `items.favorite` / `items.fav_video_count` / `videos.favorite` を追加し、
+  既存 DB は `connect()` の `_ADDED_COLUMNS` で `ALTER TABLE` 移行する（作り直し不要）。
+- 絞り込みは「画像が★ or ★付き動画を持つ」。一覧は `index_db.list_items(..., favorite_only)` の
+  SQL で、検索（FTS / ベクトル / ハイブリッド）は関連度順を崩さないよう取得後に
+  `index_db.is_favorite()` でフィルタする。
+- API は既存の PATCH に相乗り（`ItemUpdate.favorite` / `VideoUpdate.favorite`）。
+  `exclude_unset` なので、動画プロパティの保存（prompt + settings）で★は消えない。
+- UI は `.card` / `.vstrip-card` 右上の `.fav-star`（OFF はホバー時のみ、ON は金色 `var(--fav)`）。
+  クリックは `stopPropagation` で選択・再生と分離。動画バッジは★と重ならないよう `right: 28px`
+  に寄せ、★付き動画があれば金色 + ★を付ける。F キーは Del と同じガード（入力中・別タブ・
+  設定ダイアログ表示中は無効）で、すべて★なら外す / 1 つでも未★なら全部★にする。
+- 検証: `tests/test_library_core.py` にお気に入りの往復と再構築後の復元を追加して実行。
+  TestClient で PATCH → `favorite_only` の一覧・検索を確認。ヘッドレス Chrome で
+  カード★・動画バッジ・動画ストリップ★の表示を確認した。
+
 ### アプリアイコンの差し替え（2026-08-05）
 
 - `assets/ai-cube.png`（1254x1254 / RGB）を元に `assets/app_icon.png`（512x512 RGBA）と

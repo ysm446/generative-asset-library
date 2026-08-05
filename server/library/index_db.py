@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS items (
     params TEXT DEFAULT '{}',
     tags TEXT DEFAULT '[]',
     video_count INTEGER DEFAULT 0,
-    sort_order REAL DEFAULT 0
+    sort_order REAL DEFAULT 0,
+    favorite INTEGER DEFAULT 0,
+    fav_video_count INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder);
 CREATE TABLE IF NOT EXISTS videos (
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS videos (
     prompt TEXT DEFAULT '',
     workflow TEXT DEFAULT '',
     created_at TEXT,
+    favorite INTEGER DEFAULT 0,
     PRIMARY KEY (item_id, file)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
@@ -51,14 +54,29 @@ CREATE TABLE IF NOT EXISTS item_embeddings (
 """
 
 
+# 後から追加した列（既存 DB を作り直さずに使えるよう ALTER TABLE で足す）
+_ADDED_COLUMNS = {
+    "items": {
+        "sort_order": "REAL DEFAULT 0",
+        "favorite": "INTEGER DEFAULT 0",
+        "fav_video_count": "INTEGER DEFAULT 0",
+    },
+    "videos": {"favorite": "INTEGER DEFAULT 0"},
+}
+
+
 def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(paths.db_path())
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    # 既存 DB に sort_order 列が無ければ追加
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(items)")}
-    if "sort_order" not in cols:
-        conn.execute("ALTER TABLE items ADD COLUMN sort_order REAL DEFAULT 0")
+    changed = False
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+                changed = True
+    if changed:
         conn.commit()
     return conn
 
@@ -67,6 +85,7 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["params"] = json.loads(item.get("params") or "{}")
     item["tags"] = json.loads(item.get("tags") or "[]")
+    item["favorite"] = bool(item.get("favorite"))
     return item
 
 
@@ -79,8 +98,9 @@ def upsert_item(meta: dict[str, Any], folder: str, conn: sqlite3.Connection | No
             """
             INSERT OR REPLACE INTO items
                 (id, folder, created_at, image, thumb, prompt, negative_prompt,
-                 caption, seed, params, tags, video_count, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 caption, seed, params, tags, video_count, sort_order,
+                 favorite, fav_video_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 meta["id"],
@@ -96,19 +116,23 @@ def upsert_item(meta: dict[str, Any], folder: str, conn: sqlite3.Connection | No
                 json.dumps(meta.get("tags") or [], ensure_ascii=False),
                 len(videos),
                 float(meta.get("sort_order") or 0),
+                1 if meta.get("favorite") else 0,
+                sum(1 for v in videos if v.get("favorite")),
             ),
         )
         conn.execute("DELETE FROM videos WHERE item_id = ?", (meta["id"],))
         for v in videos:
             conn.execute(
-                "INSERT OR REPLACE INTO videos (item_id, file, prompt, workflow, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO videos"
+                " (item_id, file, prompt, workflow, created_at, favorite)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     meta["id"],
                     v.get("file"),
                     v.get("prompt") or "",
                     v.get("workflow") or "",
                     v.get("created_at"),
+                    1 if v.get("favorite") else 0,
                 ),
             )
         conn.execute("DELETE FROM items_fts WHERE id = ?", (meta["id"],))
@@ -152,23 +176,32 @@ def get_item_row(item_id: str) -> dict[str, Any] | None:
         conn.close()
 
 
-def list_items(folder: str = "", recursive: bool = False) -> list[dict[str, Any]]:
+def is_favorite(item: dict[str, Any]) -> bool:
+    """お気に入り扱いか（画像自体が★、または★付き動画を持つ）。"""
+    return bool(item.get("favorite")) or (item.get("fav_video_count") or 0) > 0
+
+
+def list_items(
+    folder: str = "", recursive: bool = False, favorite_only: bool = False
+) -> list[dict[str, Any]]:
     conn = connect()
     try:
-        order = "ORDER BY sort_order DESC, created_at DESC"
+        where: list[str] = []
+        args: list[Any] = []
         if recursive:
             if folder:
-                rows = conn.execute(
-                    f"SELECT * FROM items WHERE folder = ? OR folder LIKE ? {order}",
-                    (folder, folder + "/%"),
-                ).fetchall()
-            else:
-                rows = conn.execute(f"SELECT * FROM items {order}").fetchall()
+                where.append("(folder = ? OR folder LIKE ?)")
+                args += [folder, folder + "/%"]
         else:
-            rows = conn.execute(
-                f"SELECT * FROM items WHERE folder = ? {order}",
-                (folder,),
-            ).fetchall()
+            where.append("folder = ?")
+            args.append(folder)
+        if favorite_only:
+            where.append("(favorite = 1 OR fav_video_count > 0)")
+        sql = "SELECT * FROM items"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY sort_order DESC, created_at DESC"
+        rows = conn.execute(sql, args).fetchall()
         return [_row_to_item(r) for r in rows]
     finally:
         conn.close()
@@ -203,7 +236,7 @@ def list_all_videos() -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT videos.item_id, videos.file, videos.prompt, videos.workflow,
-                   videos.created_at, items.folder, items.thumb,
+                   videos.created_at, videos.favorite, items.folder, items.thumb,
                    items.prompt AS item_prompt
             FROM videos JOIN items ON items.id = videos.item_id
             ORDER BY videos.created_at DESC

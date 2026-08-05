@@ -78,6 +78,21 @@ def main() -> None:
     assert len(index_db.list_items("風景/海")) == 0
     assert len(index_db.list_items("キャラ")) == 1
 
+    # お気に入り（画像・動画）
+    assert index_db.list_items("キャラ", favorite_only=True) == []
+    meta = items.update_item(item_id, {"favorite": True})
+    assert meta["favorite"] is True
+    assert index_db.get_item_row(item_id)["favorite"] is True
+    assert len(index_db.list_items("キャラ", favorite_only=True)) == 1
+    items.update_item(item_id, {"favorite": False})
+    assert index_db.list_items("キャラ", favorite_only=True) == []
+    # ★付き動画を持つ画像も、絞り込みでは「お気に入り」として拾う
+    meta = items.update_video(item_id, "v002.mp4", {"favorite": True})
+    assert meta["videos"][0]["favorite"] is True
+    row = index_db.get_item_row(item_id)
+    assert row["fav_video_count"] == 1 and index_db.is_favorite(row)
+    assert len(index_db.list_items("キャラ", favorite_only=True)) == 1
+
     # フォルダのリネーム・移動
     assert folders.rename_folder("キャラ", "お気に入り") == "お気に入り"
     assert index_db.get_item_row(item_id)["folder"] == "お気に入り"
@@ -90,6 +105,7 @@ def main() -> None:
     assert count == 1
     row = index_db.get_item_row(item_id)
     assert row["folder"] == "風景/お気に入り" and row["video_count"] == 1
+    assert row["fav_video_count"] == 1  # 動画の★も meta.json から復元される
     assert index_db.search_items("favorite")[0]["id"] == item_id
 
     # 取り込み（メタデータなし PNG）
