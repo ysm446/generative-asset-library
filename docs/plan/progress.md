@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-08-05 20:00
+更新日時: 2026-08-05 21:30
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -440,6 +440,20 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
   （上端付近の暗いピクセルが始まる x = 258px ≒ 20.6%）rounded_rectangle でマスクを描き、
   4 倍解像度→縮小のアンチエイリアスをかけて alpha に入れている。
 - 元画像を差し替えるときは同じ手順で再生成する。生成スクリプトはリポジトリに含めていない。
+
+### クリップパレットのお気に入り（2026-08-05）
+
+- シーケンス画面のクリップカードから「＋」ボタン（`addNodeFromVideo`）を削除し、代わりに
+  `.fav-star` を置いた。ノード追加はドラッグ＆ドロップのみになる（カードの title は元から
+  「クリックで試聴 / ドラッグでノード配置」）。
+- 状態は `/api/library/videos`（`index_db.list_all_videos`）が返す `videos.favorite` をそのまま使い、
+  切り替えは既存の `PATCH /api/library/items/{id}/videos/{file}` に相乗り。成功したら
+  `seqState.videos` の要素とボタンだけ更新し、`renderPalette()` は呼ばない（スクロール位置維持）。
+- app.js の `makeFavStar` は共有せず `sequence.js` にローカル実装した。ツールチップの「（F）」は
+  シーケンス画面では F がノードフォーカスに割り当たっているため付けていない。
+- CSS は `.palette-card .fav-star`。カードが flex 行なので絶対配置ではなく行内に並べ、
+  OFF でも `opacity: 0.5` で見えるようにしている（`.card` 側の「ホバー時だけ」とは別扱い）。
+- 検証: `node --check frontend/sequence.js` のみ。実画面での見た目は未確認。
 
 ## 確認済みの補足
 

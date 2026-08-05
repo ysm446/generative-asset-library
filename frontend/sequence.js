@@ -909,18 +909,6 @@ function addNodeAt(v, gx, gy) {
   setSeqStatus("ノードを追加しました");
 }
 
-// ＋ ボタン：ビュー中央あたりに配置（少しずらして重なりを避ける）
-function addNodeFromVideo(v) {
-  if (!seqState.seq) {
-    setSeqStatus("先にシーケンスを選択（または作成）してください", true);
-    return;
-  }
-  const rect = $("#seq-canvas").getBoundingClientRect();
-  const center = screenToGraph(rect.left + rect.width / 2, rect.top + rect.height / 3);
-  const offset = seqState.seq.nodes.length * 24;
-  addNodeAt(v, center.x + offset, center.y + PORT_CY + offset);
-}
-
 function removeNode(id) {
   seqState.seq.nodes = seqState.seq.nodes.filter((n) => n.id !== id);
   seqState.seq.edges = seqState.seq.edges.filter((e) => e.src !== id && e.dst !== id);
@@ -1974,16 +1962,51 @@ function renderClipCards(container, videos, emptyMsg) {
     card.appendChild(info);
     // クリックでプレイヤーに読み込んで試聴
     card.addEventListener("click", () => previewClip(v));
-    const add = document.createElement("button");
-    add.textContent = "＋";
-    add.title = "ノードとして追加";
-    add.addEventListener("click", (e) => {
-      e.stopPropagation();
-      addNodeFromVideo(v);
-    });
-    card.appendChild(add);
+    card.appendChild(makeClipFavStar(v));
     container.appendChild(card);
   }
+}
+
+/**
+ * クリップのお気に入り★ボタン。ライブラリ側の ★ と同じ状態を切り替える。
+ * カードのクリック（試聴）やドラッグとは切り離す。
+ */
+function makeClipFavStar(v) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "fav-star";
+  btn.draggable = false;
+  btn.innerHTML = iconSvg("star");
+  setClipFavState(btn, v.favorite);
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    toggleClipFavorite(v, btn);
+  });
+  return btn;
+}
+
+function setClipFavState(btn, on) {
+  btn.classList.toggle("is-on", !!on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on ? "お気に入りを外す" : "お気に入りに追加";
+}
+
+async function toggleClipFavorite(v, btn) {
+  const on = !v.favorite;
+  const name = v.file.replace(/\\/g, "/").split("/").pop();
+  try {
+    await apiJson(
+      `/api/library/items/${v.item_id}/videos/${encodeURIComponent(name)}`,
+      "PATCH",
+      { favorite: on }
+    );
+  } catch (err) {
+    setSeqStatus(err.message, true);
+    return;
+  }
+  v.favorite = on;
+  setClipFavState(btn, on);
 }
 
 // パレットのクリップをプレイヤーで単体再生（順路とは独立）
