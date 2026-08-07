@@ -134,6 +134,75 @@ def reveal_folder(body: FolderReveal) -> dict[str, bool]:
     return {"ok": True}
 
 
+class PathReveal(BaseModel):
+    path: str
+
+
+@router.post("/reveal-path")
+def reveal_path(body: PathReveal) -> dict[str, bool]:
+    """絶対パスのフォルダをエクスプローラーで開く（一括出力先を開く用）。"""
+    import os
+    import subprocess
+
+    p = Path(body.path.strip())
+    if not p.is_absolute() or not p.is_dir():
+        raise HTTPException(status_code=404, detail="folder not found")
+    if os.name != "nt":
+        raise HTTPException(status_code=400, detail="Windows のみ対応しています")
+    subprocess.Popen(["explorer", str(p)])
+    return {"ok": True}
+
+
+class FolderExport(BaseModel):
+    rel: str = ""
+    dest: str
+    recursive: bool = False
+
+
+@router.post("/folders/export")
+def export_folder_images(body: FolderExport) -> dict[str, Any]:
+    """フォルダ内の画像を指定フォルダへ一括コピーする。"""
+    import shutil
+
+    rel = _wrap(paths.normalize_rel, body.rel)
+    src_dir = _wrap(paths.resolve_rel, rel)
+    if not src_dir.is_dir():
+        raise HTTPException(status_code=404, detail="folder not found")
+
+    raw = body.dest.strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="出力先フォルダを指定してください")
+    dest = Path(raw).expanduser()
+    if not dest.is_absolute():
+        raise HTTPException(status_code=400, detail="出力先は絶対パスで指定してください")
+    # 選択したフォルダ名のサブフォルダを作り、その中へ出力する
+    folder_name = rel.split("/")[-1] if rel else paths.get_library_root().name
+    dest = dest / folder_name
+    root = paths.get_library_root().resolve()
+    resolved = dest.resolve()
+    if resolved == root or root in resolved.parents:
+        raise HTTPException(status_code=400, detail="ライブラリ内には出力できません")
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"出力先フォルダを作成できません: {e}")
+
+    exported = 0
+    skipped = 0
+    for row in index_db.list_items(rel, body.recursive):
+        image_name = row.get("image") or "image.png"
+        src = paths.resolve_rel(row["folder"]) / row["id"] / image_name
+        if not src.is_file():
+            skipped += 1
+            continue
+        try:
+            shutil.copy2(src, dest / f"{row['id']}{src.suffix}")
+            exported += 1
+        except OSError:
+            skipped += 1
+    return {"exported": exported, "skipped": skipped, "dest": str(dest)}
+
+
 # ---------------------------------------------------------------------------
 # アイテム
 # ---------------------------------------------------------------------------

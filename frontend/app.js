@@ -7,7 +7,7 @@ import { initSequenceView, activateSequenceView } from "/frontend/sequence.js";
 import { initSnippetsView, activateSnippetsView } from "/frontend/snippets.js";
 import { attachSnippetAutocomplete } from "/frontend/snippet-autocomplete.js";
 import { attachSnippetHighlight } from "/frontend/snippet-highlight.js";
-import { showInputDialog } from "/frontend/dialog.js";
+import { showInputDialog, showFormDialog } from "/frontend/dialog.js";
 import { showContextMenu } from "/frontend/menu.js";
 import { iconSvg, setIconLabel, applyStaticIcons } from "/frontend/icons.js";
 
@@ -158,6 +158,61 @@ async function run(fn, doneMessage = "") {
   }
 }
 
+/**
+ * 右下のクリック可能な通知トースト。
+ * onClick があればトースト本体のクリックで実行して閉じる。一定時間で自動的に消える。
+ */
+function showActionToast(message, { hint = "", onClick, timeout = 12000 } = {}) {
+  let container = $("#toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement("div");
+  toast.className = "action-toast";
+  if (onClick) toast.classList.add("clickable");
+
+  const body = document.createElement("div");
+  body.className = "action-toast-body";
+  const msg = document.createElement("div");
+  msg.className = "action-toast-msg";
+  msg.textContent = message;
+  body.appendChild(msg);
+  if (hint) {
+    const h = document.createElement("div");
+    h.className = "action-toast-hint";
+    h.textContent = hint;
+    body.appendChild(h);
+  }
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "action-toast-close";
+  close.title = "閉じる";
+  setIconLabel(close, "x");
+
+  toast.append(body, close);
+  container.appendChild(toast);
+
+  const remove = () => {
+    clearTimeout(timer);
+    toast.classList.add("is-hiding");
+    setTimeout(() => toast.remove(), 200);
+  };
+  const timer = setTimeout(remove, timeout);
+  close.addEventListener("click", (e) => {
+    e.stopPropagation();
+    remove();
+  });
+  if (onClick) {
+    toast.addEventListener("click", () => {
+      onClick();
+      remove();
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // フォルダツリー
 // ---------------------------------------------------------------------------
@@ -292,6 +347,11 @@ function showFolderMenu(node, isRoot, x, y) {
       icon: "folder-open",
       label: "エクスプローラーで開く",
       action: () => revealFolder(node.rel),
+    },
+    {
+      icon: "download",
+      label: "画像を一括で出力",
+      action: () => exportFolderImages(node),
     },
   ];
   if (!isRoot) {
@@ -474,6 +534,50 @@ async function revealFolder(rel) {
     () => apiJson("/api/library/folders/reveal", "POST", { rel }),
     "エクスプローラーで開きました"
   );
+}
+
+async function exportFolderImages(node) {
+  const name = node.rel === "" ? rootName() : node.rel.split("/").pop();
+  let recursive = false;
+  if (node.children?.length) {
+    const v = await showFormDialog(
+      `「${name}」の画像を一括で出力`,
+      [
+        {
+          key: "recursive",
+          label: "子フォルダ（孫以下も含む）の画像も出力する",
+          type: "checkbox",
+          value: false,
+        },
+      ],
+      { submitLabel: "出力先を選択..." }
+    );
+    if (!v) return;
+    recursive = !!v.recursive;
+  }
+  let dest;
+  if (window.electronAPI?.selectFolder) {
+    dest = await window.electronAPI.selectFolder();
+    if (!dest) return; // キャンセル
+  } else {
+    dest = await showInputDialog("出力先フォルダ（絶対パス）:");
+    if (!dest) return;
+  }
+  await run(async () => {
+    setStatus("画像を出力しています...");
+    const res = await apiJson("/api/library/folders/export", "POST", {
+      rel: node.rel,
+      dest,
+      recursive,
+    });
+    const skipped = res.skipped ? `（${res.skipped} 件スキップ）` : "";
+    setStatus(`${res.exported} 件の画像を出力しました${skipped}`);
+    showActionToast(`「${name}」の画像 ${res.exported} 件を出力しました${skipped}`, {
+      hint: `${res.dest}（クリックでフォルダを開く）`,
+      onClick: () =>
+        run(() => apiJson("/api/library/reveal-path", "POST", { path: res.dest })),
+    });
+  });
 }
 
 // 新規フォルダ・エクスプローラーで開くはツリーの右クリックメニューから行う

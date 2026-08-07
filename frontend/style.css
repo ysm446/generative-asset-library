@@ -2000,12 +2000,72 @@ textarea.auto-grow {
 .dialog-form { min-width: 380px; gap: 10px; }
 .dialog-form .field label { margin-bottom: 3px; }
 .dialog-hint { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.field label.dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+.dialog-check input[type="checkbox"] { width: auto; }
 .dialog-error { color: var(--danger); font-size: 12px; }
 
 .dialog-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ---------------------------------------------------------- action toast */
+
+#toast-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.action-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 380px;
+  padding: 10px 12px;
+  background: var(--bg-pane);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.2s ease-out;
+}
+.action-toast.is-hiding { opacity: 0; transition: opacity 0.2s; }
+.action-toast.clickable { cursor: pointer; }
+.action-toast.clickable:hover { background: var(--bg-hover); }
+.action-toast-msg { font-size: 13px; color: var(--text); }
+.action-toast-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  word-break: break-all;
+}
+.action-toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+}
+.action-toast-close:hover { color: var(--text); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ---------------------------------------------------------- context menu */

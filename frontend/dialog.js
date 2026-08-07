@@ -54,7 +54,8 @@ export function showInputDialog(title, defaultValue = "") {
 
 /**
  * 複数項目の入力モーダル。
- * fields: [{ key, label, type?: "text" | "select" | "textarea", value?, options?, hint? }]
+ * fields: [{ key, label, type?: "text" | "select" | "textarea" | "checkbox", value?, options?, hint? }]
+ * checkbox は value に初期チェック状態（boolean）を渡し、結果も boolean で返る。
  * onSubmit(values) を渡すと、その完了まで閉じない（例外はダイアログ内にエラー表示）。
  * OK なら値のオブジェクト、キャンセルなら null を返す。
  */
@@ -75,6 +76,24 @@ export function showFormDialog(title, fields, { submitLabel = "OK", onSubmit } =
     for (const f of fields) {
       const wrap = document.createElement("div");
       wrap.className = "field";
+      if (f.type === "checkbox") {
+        const label = document.createElement("label");
+        label.className = "dialog-check";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = !!f.value;
+        label.append(input, document.createTextNode(f.label));
+        wrap.appendChild(label);
+        if (f.hint) {
+          const hint = document.createElement("div");
+          hint.className = "dialog-hint";
+          hint.textContent = f.hint;
+          wrap.appendChild(hint);
+        }
+        box.appendChild(wrap);
+        controls.set(f.key, input);
+        continue;
+      }
       const label = document.createElement("label");
       label.textContent = f.label;
       let input;
@@ -132,7 +151,8 @@ export function showFormDialog(title, fields, { submitLabel = "OK", onSubmit } =
     };
     const values = () => {
       const out = {};
-      for (const [key, input] of controls) out[key] = input.value;
+      for (const [key, input] of controls)
+        out[key] = input.type === "checkbox" ? input.checked : input.value;
       return out;
     };
     const submit = async () => {

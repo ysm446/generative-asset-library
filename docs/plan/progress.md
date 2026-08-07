@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-08-05 21:30
+更新日時: 2026-08-07 17:40
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -454,6 +454,28 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
 - CSS は `.palette-card .fav-star`。カードが flex 行なので絶対配置ではなく行内に並べ、
   OFF でも `opacity: 0.5` で見えるようにしている（`.card` 側の「ホバー時だけ」とは別扱い）。
 - 検証: `node --check frontend/sequence.js` のみ。実画面での見た目は未確認。
+
+### フォルダ画像の一括出力（2026-08-07）
+
+- 左サイドバーのフォルダメニュー（右クリック / […]）に「画像を一括で出力」を追加した。
+- サーバー側は `POST /api/library/folders/export`（`rel` / `dest` / `recursive`）。
+  `dest` の中に**選択フォルダ名（rel の末尾。ルートはライブラリルートのフォルダ名）の
+  サブフォルダを作り**、`index_db.list_items` で列挙した各アイテムの画像を
+  `{item_id}{ext}` 名でコピーする（ID は作成日時ベースなので出力先でも作成順に並ぶ）。
+  `dest` は絶対パス必須で、ライブラリルート配下は拒否。ソースが欠けている・コピー失敗は
+  `skipped` に数えて続行する。実際に出力したパスはレスポンスの `dest` で返す。
+- `POST /api/library/reveal-path`（絶対パスをエクスプローラーで開く）も追加した。
+  一括出力の完了通知のクリックから使う。存在しないパス・相対パスは 404。
+- フロントは `exportFolderImages(node)`。子フォルダがあるときだけ `showFormDialog` の
+  チェックボックス（新設の `type: "checkbox"`、boolean で返る）で再帰の有無を聞き、
+  出力先は `window.electronAPI.selectFolder`（ブラウザ時は `showInputDialog` フォールバック）。
+  完了時は右下に `showActionToast`（新設。`#toast-container` に積む・クリックで onClick 実行・
+  × か 12 秒で消える）を出し、クリックで reveal-path を呼んで出力先を開く。
+- `icons.js` に `download` アイコン、`style.css` に `.dialog-check` と
+  `.action-toast` 系（`#toast-container`）を追加した。
+- 検証: 一時ライブラリで非再帰 / 再帰 / 入れ子フォルダ名 / ルート / ライブラリ内 dest 拒否 /
+  相対パス拒否 / 404（export・reveal-path）をスクリプトで確認し、
+  `tests/test_library_core.py` も ALL OK。UI の実表示は未確認。
 
 ## 確認済みの補足
 

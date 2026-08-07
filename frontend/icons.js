@@ -68,6 +68,8 @@ const ICONS = {
   "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   "chevron-right": '<path d="m9 6 6 6-6 6"/>',
   "arrow-left": '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+  download:
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
 };
 
 export function iconSvg(name, cls = "") {
