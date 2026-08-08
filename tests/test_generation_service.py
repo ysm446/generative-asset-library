@@ -136,6 +136,7 @@ def main() -> None:
             "prompt": "pencil sketch style",
             "workflow": "qwen_edit_test",
             "seed": 7,
+            "same_size": False,
             "width": 96,
             "height": 64,
             "refs": [ref["id"], "no-such-item"],
@@ -145,6 +146,7 @@ def main() -> None:
     # 元画像 + 実在する参照画像だけが渡る（見つからない参照は無視して続行）
     assert len(captured["input_images"]) == 2
     assert captured["positive"] == "pencil sketch style"
+    assert (captured["width"], captured["height"]) == (96, 64)
     assert len(meta4["edits"]) == 1
     e = meta4["edits"][0]
     assert e["file"] == "edits/e001.png"
@@ -154,6 +156,24 @@ def main() -> None:
     assert (item_dir / "edits" / "e001.thumb.jpg").is_file()
     assert index_db.get_item_row(meta["id"])["edit_count"] == 1
     assert meta4["edit_settings"]["seed"] == 7
+
+    # same_size（既定）のときは Width / Height 指定を無視して元画像の実サイズを使う
+    captured.clear()
+    meta5 = service.generate_edit_for_item(
+        {
+            "item_id": meta["id"],
+            "prompt": "watercolor style",
+            "workflow": "qwen_edit_test",
+            "seed": -1,
+            "width": 512,
+            "height": 512,
+        },
+        statuses.append,
+    )
+    src_size = Image.open(item_dir / "image.png").size
+    assert (captured["width"], captured["height"]) == src_size
+    assert meta5["edit_settings"]["same_size"] is True
+    assert meta5["edit_settings"]["used_size"] == list(src_size)
 
     # 編集画像を独立アイテムに昇格すると、通常の画像として動画も作れる
     promoted = items.promote_edit(meta["id"], "e001.png")

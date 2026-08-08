@@ -163,6 +163,14 @@ def generate_edit_for_item(params: dict[str, Any], status: StatusFn) -> dict[str
         status("ComfyUI の起動を確認中...")
         comfy_process.wait_until_ready()
 
+    # 「元画像と同じ解像度」指定時は、元画像の実サイズを使う（既定）。
+    # 指定なしのときは従来どおり、空ならワークフロー側の値をそのまま使う。
+    if params.get("same_size", True):
+        width, height = image.size
+    else:
+        width = int(params["width"]) if params.get("width") else None
+        height = int(params["height"]) if params.get("height") else None
+
     wf_path = comfy_client.EDIT_WORKFLOW_PRESETS.get(workflow, workflow)
     status("画像を編集中...")
     result = comfy_client.generate_image(
@@ -170,8 +178,8 @@ def generate_edit_for_item(params: dict[str, Any], status: StatusFn) -> dict[str
         positive=prompt,
         negative=params.get("negative", ""),
         seed=seed,
-        width=int(params["width"]) if params.get("width") else None,
-        height=int(params["height"]) if params.get("height") else None,
+        width=width,
+        height=height,
         input_images=inputs,
     )
     if not isinstance(result, Image.Image):
@@ -184,8 +192,11 @@ def generate_edit_for_item(params: dict[str, Any], status: StatusFn) -> dict[str
     settings = {
         "prompt": prompt,
         "workflow": workflow,
+        # same_size のときもフォームの入力値はそのまま残す（チェックを外すと元に戻る）
+        "same_size": bool(params.get("same_size", True)),
         "width": params.get("width", ""),
         "height": params.get("height", ""),
+        "used_size": [width, height] if width and height else None,
         "seed": used_seed,
         "refs": list(params.get("refs") or []),
     }

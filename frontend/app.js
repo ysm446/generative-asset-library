@@ -66,6 +66,7 @@ const state = {
   genEdit: {
     prompt: "",
     workflow: "",
+    same_size: true, // 元画像と同じ解像度で出力する（Width / Height を使わない）
     width: "",
     height: "",
     seed: -1,
@@ -3100,11 +3101,50 @@ function currentEditSettings() {
   return {
     prompt: g.prompt,
     workflow: g.workflow,
+    same_size: g.same_size !== false,
     width: g.width,
     height: g.height,
     seed: g.seed,
     refs: [...(g.refs || [])],
   };
+}
+
+/**
+ * 「元画像と同じ解像度」チェックと Width / Height の行。
+ *
+ * チェック中は入力を無効化する。実際の解像度はサーバー側で元画像から取るので、
+ * ここでフィールドに値を書き込むことはしない（元画像を差し替えても追従する）。
+ * d は { same_size, width, height } を持つ編集対象（state.genEdit または編集ドラフト）。
+ */
+function buildEditSizeFields(d, item) {
+  const frag = document.createDocumentFragment();
+  const widthInput = makeInput("number", d.width, (v) => (d.width = v));
+  const heightInput = makeInput("number", d.height, (v) => (d.height = v));
+
+  const lbl = document.createElement("label");
+  lbl.className = "section-check";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = d.same_size !== false;
+  const applyState = () => {
+    widthInput.disabled = cb.checked;
+    heightInput.disabled = cb.checked;
+  };
+  cb.addEventListener("change", () => {
+    d.same_size = cb.checked;
+    applyState();
+  });
+  applyState();
+  const p = item?.params || {};
+  const known = Number(p.width) && Number(p.height) ? `（${p.width}×${p.height}）` : "";
+  lbl.append(cb, document.createTextNode(` 元画像と同じ解像度${known}`));
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.append(labeled("Width（空でWF値）", widthInput), labeled("Height", heightInput));
+
+  frag.append(lbl, row);
+  return frag;
 }
 
 function renderEditGenContext(el, item) {
@@ -3124,6 +3164,7 @@ function renderEditGenContext(el, item) {
     if (es) {
       g.prompt = es.prompt ?? "";
       g.workflow = es.workflow ?? g.workflow;
+      g.same_size = es.same_size !== false;
       g.width = es.width ?? "";
       g.height = es.height ?? "";
       g.seed = es.seed ?? -1;
@@ -3163,14 +3204,7 @@ function renderEditGenContext(el, item) {
   );
 
   el.appendChild(buildEditRefsBox(g.refs, () => {}));
-
-  const row = document.createElement("div");
-  row.className = "row";
-  row.append(
-    labeled("Width（空でWF値）", makeInput("number", g.width, (v) => (g.width = v))),
-    labeled("Height", makeInput("number", g.height, (v) => (g.height = v)))
-  );
-  el.appendChild(row);
+  el.appendChild(buildEditSizeFields(g, item));
   el.appendChild(seedField("Seed", g, () => state.lastEditSeed));
 
   const genBtn = document.createElement("button");
@@ -3237,6 +3271,7 @@ function renderEditPropsContext(el, item, ed) {
   const d = {
     prompt: ed.prompt || es.prompt || "",
     workflow: es.workflow || ed.workflow || state.genEdit.workflow,
+    same_size: es.same_size !== false,
     width: es.width ?? "",
     height: es.height ?? "",
     seed: typeof es.seed === "number" ? es.seed : -1,
@@ -3260,19 +3295,14 @@ function renderEditPropsContext(el, item, ed) {
   }
   el.appendChild(buildEditRefsBox(d.refs, () => {}));
 
-  const sizeRow = document.createElement("div");
-  sizeRow.className = "row";
-  sizeRow.append(
-    labeled("Width（空でWF値）", makeInput("number", d.width, (v) => (d.width = v))),
-    labeled("Height", makeInput("number", d.height, (v) => (d.height = v)))
-  );
-  el.appendChild(sizeRow);
+  el.appendChild(buildEditSizeFields(d, item));
   el.appendChild(seedField("Seed", d, () => state.lastEditSeed));
 
   const buildSettings = () => ({
     ...es,
     prompt: d.prompt,
     workflow: d.workflow,
+    same_size: d.same_size !== false,
     width: d.width,
     height: d.height,
     seed: d.seed,

@@ -2275,6 +2275,11 @@ input:focus, textarea:focus, select:focus {
   border-color: var(--accent);
 }
 
+input:disabled, textarea:disabled, select:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 textarea { resize: vertical; }
 
 /* ------------------------------------------------------------- statusbar */

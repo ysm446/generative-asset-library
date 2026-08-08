@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-08-08 12:20
+更新日時: 2026-08-08 12:35
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -485,6 +485,10 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
   - プロンプト差し替えを `CLIPTextEncode` の `text` に加えて、`TextEncode*` 系の
     `prompt` 入力にも対応させた（`TextEncodeQwenImageEditPlus` 用）。negative の判定は従来どおり
     タイトルのキーワードと「他ノードの `negative` 入力に接続されているか」。
+- 出力サイズは「元画像と同じ解像度」チェック（`same_size`、既定オン）で決まる。
+  サーバー側で `Image.open(元画像).size` を使うので、フォームに値を書き戻さない
+  （元画像を差し替えても追従する）。チェックを外すと従来どおり `width` / `height` を使い、
+  空ならワークフローの値のまま。実際に使ったサイズは `settings.used_size` に記録する。
 - フロント: 下部ストリップを「動画 / 編集」のタブ式にした（`renderStrip` / `renderStripTabs` /
   `renderVideoCards` / `renderEditCards`）。`renderVideoStrip` は `renderStrip` に改名。
   画像プロパティに「画像を編集...」ボタン、編集パネル（`renderEditGenContext`）、
