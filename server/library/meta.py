@@ -30,8 +30,9 @@ def new_meta(
     params: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     caption: str = "",
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    meta = {
         "id": item_id,
         "created_at": now_iso(),
         "image": image_file,
@@ -45,7 +46,13 @@ def new_meta(
         # 並べ替え用。既定は作成時刻（新しいものほど大きい＝先頭）
         "sort_order": time.time(),
         "videos": [],
+        # 編集画像（スタイル変換など）。videos と同じくこの画像に紐づくサブアセット
+        "edits": [],
     }
+    # 他アイテム由来（編集画像の昇格など）のときだけ出自を残す
+    if source:
+        meta["source"] = source
+    return meta
 
 
 def load_meta(item_dir: Path) -> dict[str, Any]:

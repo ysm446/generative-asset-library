@@ -557,11 +557,43 @@ button.svc-chip:active { transform: translateY(1px); }
 }
 
 .video-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 4px 10px;
   font-size: 11px;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
 }
+
+/* ストリップの切り替えタブ（動画 / 編集） */
+.strip-tabs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.strip-tab {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.strip-tab:hover { border-color: var(--text-dim); }
+
+.strip-tab.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 未確認の新着を持つタブ */
+.strip-tab.has-new { border-color: #ffb74d; color: #ffb74d; }
+
+.strip-tab .ico { width: 12px; height: 12px; vertical-align: -1px; }
 
 .video-strip-list {
   flex: 1;
@@ -590,12 +622,28 @@ button.svc-chip:active { transform: translateY(1px); }
 .vstrip-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .vstrip-card.is-focused { box-shadow: 0 0 0 2px var(--accent); }
 
-.vstrip-card video {
+.vstrip-card video,
+.vstrip-card img {
+  display: block;
   width: 100%;
   flex: 1;
   min-height: 0;
   object-fit: cover;
   background: #000;
+}
+
+/* 独立アイテムへ昇格済みの編集画像 */
+.vstrip-card.is-promoted { border-color: var(--accent); }
+
+.vstrip-card .promoted-mark {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--accent);
+  font-size: 10px;
 }
 
 .vstrip-label {
@@ -621,6 +669,43 @@ button.svc-chip:active { transform: translateY(1px); }
   font-size: 12px;
   border: 1px dashed var(--border);
   border-radius: 6px;
+}
+
+/* 画像編集パネルの参照画像ドロップ欄 */
+.edit-refs-drop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 46px;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  align-items: center;
+}
+
+.edit-refs-drop.is-drop-target { border-color: var(--accent); }
+
+.edit-ref-chip {
+  position: relative;
+  width: 46px;
+  height: 46px;
+}
+
+.edit-ref-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #111;
+}
+
+.edit-ref-chip button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  padding: 1px;
+  line-height: 0;
+  border-radius: 50%;
 }
 
 .grid-empty {
@@ -666,6 +751,9 @@ button.svc-chip:active { transform: translateY(1px); }
   padding: 1px 6px;
   font-size: 11px;
 }
+
+/* 動画バッジと並ぶときの 2 つ目（編集画像）のバッジ */
+.card .badge.is-second { right: 66px; }
 
 /* ★付き動画を持つ画像は金色のバッジで示す */
 .card .badge.has-fav { color: var(--fav); }
@@ -1587,6 +1675,9 @@ textarea.auto-grow {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* プレビュー直下のファイル名（右パネルは flex 列なので潰れないよう固定） */
+.preview-file { flex: none; }
 
 /* ------------------------------------------------------------------- llm */
 

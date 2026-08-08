@@ -4,6 +4,7 @@
 - {"type": "status", "content": "..."}
 - {"type": "item", "item": {...}}    画像生成完了（保存済みアイテム）
 - {"type": "video", "item": {...}}   動画生成完了（動画が追加されたアイテム）
+- {"type": "edit", "item": {...}}    画像編集完了（編集画像が追加されたアイテム）
 - {"type": "error", "content": "..."}
 - {"type": "done"}
 """
@@ -29,6 +30,7 @@ def get_options() -> dict[str, Any]:
         "forge_samplers": forge_client.get_samplers(),
         "image_workflows": sorted(comfy_client.IMAGE_WORKFLOW_PRESETS.keys()),
         "video_workflows": sorted(comfy_client.VIDEO_WORKFLOW_PRESETS.keys()),
+        "edit_workflows": sorted(comfy_client.EDIT_WORKFLOW_PRESETS.keys()),
     }
 
 
@@ -72,6 +74,29 @@ async def generate_video(request: Request):
             })
         except Exception as e:
             send({"type": "error", "content": f"動画生成エラー: {e}"})
+        finally:
+            send({"type": "done"})
+
+    return make_sse_response(worker)
+
+
+@router.post("/edit")
+async def generate_edit(request: Request):
+    params = await request.json()
+
+    def worker(send) -> None:
+        start = time.time()
+        try:
+            item = service.generate_edit_for_item(
+                params, lambda text: send({"type": "status", "content": text})
+            )
+            send({
+                "type": "edit",
+                "item": item,
+                "status": f"画像を編集しました（{time.time() - start:.1f}秒）",
+            })
+        except Exception as e:
+            send({"type": "error", "content": f"画像編集エラー: {e}"})
         finally:
             send({"type": "done"})
 

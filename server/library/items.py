@@ -41,6 +41,21 @@ def _retry_fs(fn, attempts: int = 4, wait: float = 0.3):
             time.sleep(wait)
 
 
+def _folder_of(d: Path) -> str:
+    """アイテムフォルダから所属フォルダの相対パスを求める（ルートは ""）。"""
+    folder = d.parent.relative_to(paths.get_library_root()).as_posix()
+    return "" if folder == "." else folder
+
+
+def _save_and_index(d: Path, meta: dict[str, Any]) -> dict[str, Any]:
+    """meta.json を書いてインデックスを更新し、folder 付きの meta を返す。"""
+    save_meta(d, meta)
+    folder = _folder_of(d)
+    index_db.upsert_item(meta, folder)
+    meta["folder"] = folder
+    return meta
+
+
 def item_dir(item_id: str) -> Path:
     """ID からアイテムフォルダを引く（インデックス → 全走査フォールバック）。"""
     row = index_db.get_item_row(item_id)
@@ -82,6 +97,7 @@ def create_item(
     params: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     caption: str = "",
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     folder_rel = paths.normalize_rel(folder_rel)
     folder = paths.resolve_rel(folder_rel)
@@ -106,6 +122,7 @@ def create_item(
             params=params,
             tags=tags,
             caption=caption,
+            source=source,
         )
         save_meta(d, meta)
     except Exception:
@@ -160,6 +177,7 @@ def update_item(item_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         "params",
         "tags",
         "video_settings",
+        "edit_settings",
     ):
         if key in fields:
             meta[key] = fields[key]
@@ -336,3 +354,140 @@ def remove_video(item_id: str, file_name: str) -> dict[str, Any]:
     index_db.upsert_item(meta, folder)
     meta["folder"] = folder
     return meta
+
+
+# ---------------------------------------------------------------------------
+# 編集画像（スタイル変換などの派生画像）
+#
+# 動画と同じくアイテムに紐づくサブアセットとして持つ。試行を何枚も並べて比べる
+# ものなので、そのままではグリッドに出さない。動画を作りたくなったときなど、
+# 画像アイテムとしての機能が必要になったら promote_edit で独立アイテムにする。
+# ---------------------------------------------------------------------------
+
+
+def _edit_entry(meta: dict[str, Any], file_name: str) -> tuple[str, dict[str, Any]]:
+    """``edits/e001.png`` またはファイル名のみから meta 内のエントリを引く。"""
+    name = file_name.replace("\\", "/").split("/")[-1]
+    if "/" in name or name in ("", ".", ".."):
+        raise LibraryError(f"invalid edit file name: {file_name!r}")
+    file_rel = f"{paths.EDITS_DIR_NAME}/{name}"
+    for e in meta.get("edits") or []:
+        if e.get("file") == file_rel:
+            return file_rel, e
+    raise NotFound(f"edit not found: {file_rel}")
+
+
+def add_edit(
+    item_id: str,
+    image_bytes: bytes,
+    *,
+    ext: str = ".png",
+    prompt: str = "",
+    workflow: str = "",
+    settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    d = item_dir(item_id)
+    meta = load_meta(d)
+    edits_dir = d / paths.EDITS_DIR_NAME
+    edits_dir.mkdir(exist_ok=True)
+    n = 1
+    while (edits_dir / f"e{n:03d}{ext}").exists():
+        n += 1
+    file_rel = f"{paths.EDITS_DIR_NAME}/e{n:03d}{ext}"
+    (d / file_rel).write_bytes(image_bytes)
+    # 一覧用サムネイル（動画と同じ .thumb.jpg 規約）
+    thumb_rel = f"{paths.EDITS_DIR_NAME}/e{n:03d}.thumb.jpg"
+    try:
+        make_thumb(image_bytes, d / thumb_rel)
+    except OSError:
+        thumb_rel = ""  # サムネイルを作れなくても本体の登録は続行する
+    entry = {
+        "file": file_rel,
+        "thumb": thumb_rel,
+        "prompt": prompt,
+        "workflow": workflow,
+        "created_at": now_iso(),
+    }
+    if settings:
+        entry["settings"] = settings
+    meta.setdefault("edits", []).append(entry)
+    return _save_and_index(d, meta)
+
+
+def update_edit(item_id: str, file_name: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """編集画像のプロンプト・設定・お気に入りを更新する。"""
+    d = item_dir(item_id)
+    meta = load_meta(d)
+    _, target = _edit_entry(meta, file_name)
+    if "prompt" in fields:
+        target["prompt"] = fields["prompt"]
+    if "workflow" in fields:
+        target["workflow"] = fields["workflow"]
+    if "settings" in fields and isinstance(fields["settings"], dict):
+        target["settings"] = {**(target.get("settings") or {}), **fields["settings"]}
+    if "favorite" in fields:
+        target["favorite"] = bool(fields["favorite"])
+    return _save_and_index(d, meta)
+
+
+def remove_edit(item_id: str, file_name: str) -> dict[str, Any]:
+    """編集画像を削除する。file_name は ``edits/e001.png`` またはファイル名のみ。"""
+    d = item_dir(item_id)
+    meta = load_meta(d)
+    file_rel, target = _edit_entry(meta, file_name)
+    for rel in (file_rel, target.get("thumb") or ""):
+        if not rel:
+            continue
+        path = d / rel
+        if path.is_file():
+            _retry_fs(path.unlink)
+    meta["edits"] = [e for e in (meta.get("edits") or []) if e is not target]
+    return _save_and_index(d, meta)
+
+
+def promote_edit(item_id: str, file_name: str) -> dict[str, Any]:
+    """編集画像を独立した画像アイテムとして複製する（元の編集画像は残す）。
+
+    昇格すると通常の画像アイテムになるため、動画生成・検索・シーケンス投入など
+    画像としての機能がそのまま使えるようになる。並びは元画像の隣（直前）。
+    """
+    d = item_dir(item_id)
+    meta = load_meta(d)
+    file_rel, target = _edit_entry(meta, file_name)
+    src = d / file_rel
+    if not src.is_file():
+        raise NotFound(f"edit file not found: {file_rel}")
+
+    settings = target.get("settings") or {}
+    params = {
+        "backend": "ComfyUI",
+        "workflow": target.get("workflow") or settings.get("workflow") or "",
+        "source_item": item_id,
+        "source_edit": file_rel,
+    }
+    for key in ("width", "height"):
+        if settings.get(key):
+            params[key] = settings[key]
+    seed = settings.get("seed")
+    new_item = create_item(
+        _folder_of(d),
+        src.read_bytes(),
+        ext=src.suffix or ".png",
+        prompt=target.get("prompt") or "",
+        seed=seed if isinstance(seed, int) and seed >= 0 else None,
+        params=params,
+        source={
+            "item_id": item_id,
+            "kind": "edit",
+            "file": file_rel,
+            "workflow": target.get("workflow") or "",
+        },
+    )
+    try:
+        new_item = place_before(new_item["id"], item_id)
+    except LibraryError:
+        pass  # 並び替えに失敗しても昇格自体は成功として扱う
+    # 昇格済みであることを元の編集エントリにも残す（UI で二重昇格を避けるため）
+    target["promoted_to"] = new_item["id"]
+    _save_and_index(d, meta)
+    return new_item

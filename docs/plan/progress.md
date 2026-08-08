@@ -1,7 +1,7 @@
 # Progress
 
 作成日時: 2026-05-19 23:05
-更新日時: 2026-08-07 17:40
+更新日時: 2026-08-08 12:20
 
 このファイルは、完了した作業、確認したこと、残っている注意点を共有するための進捗管理ドキュメントです。
 
@@ -454,6 +454,48 @@ Generative Asset Library は、初期の Gradio / A1111 想定から、Electron 
 - CSS は `.palette-card .fav-star`。カードが flex 行なので絶対配置ではなく行内に並べ、
   OFF でも `opacity: 0.5` で見えるようにしている（`.card` 側の「ホバー時だけ」とは別扱い）。
 - 検証: `node --check frontend/sequence.js` のみ。実画面での見た目は未確認。
+
+### 画像編集（派生画像）の紐づけ（2026-08-08）
+
+- 画像に「編集画像」を紐づけられるようにした。**動画と同じサブアセット**として扱い、
+  グリッドには出さない（スタイル変換の試行が何枚も出るため、一覧が近い絵で埋まらないようにする）。
+  必要になったら `promote_edit` で独立アイテムに昇格できるので、動画生成・検索・シーケンスにも乗せられる。
+  - 設計の判断: 編集結果は「1 枚の元画像に対する試行の集まり」で用途が動画に近い一方、
+    そこから動画を作りたくなる場面があるため、**サブアセット + 昇格**の組み合わせにした。
+    `videos` と統合した単一配列にはしていない（既存の `videos` テーブル・`fav_video_count`・
+    NEW バッジ・動画一覧タブ・シーケンスのクリップ選択がすべて動画前提のため、
+    統合すると影響範囲が広く、シーケンス側の互換が壊れやすい）。
+- データ: `<アイテム>/edits/eNNN.png` と `eNNN.thumb.jpg`（動画の `.thumb.jpg` 規約に合わせた）。
+  `meta.json` の `edits` に `{file, thumb, prompt, workflow, settings, created_at, favorite, promoted_to}`。
+  昇格先の `meta.json` には `source: {item_id, kind:"edit", file, workflow}` を書く。
+  `edit_settings`（最後に使った編集設定）は動画の `video_settings` と同じ扱い。
+- `index_db` に `edits` テーブルと `items.edit_count` / `fav_edit_count` を追加（既存 DB は
+  `_ADDED_COLUMNS` の ALTER で移行）。`is_favorite` と `favorite_only` の絞り込みに
+  `fav_edit_count` を含めた。
+- API: `POST/PATCH/DELETE /api/library/items/{id}/edits...`、`.../edits/delete`（一括）、
+  `.../edits/{file}/promote`、`.../edits/{file}/reveal`。生成は
+  `POST /api/generation/edit`（SSE、`{"type":"edit"}` を返す）。
+  `GET /api/generation/options` に `edit_workflows` を追加（`workflows/edit/` をスキャン。
+  画像ワークフローとは別物なのでフォールバックしない）。
+- `comfy_client` の変更点（他ワークフローへの影響に注意）:
+  - `generate_image(input_images=[...])` を追加。**接続順**（参照側の `image1`/`image2`... の順、
+    無ければノード ID 順）に 1 枚ずつ割り当て、余った `LoadImage` はノードごと削除し、
+    それを指す入力（`imageN` 等）も外す。参照が残ると存在しないファイルを読んで ComfyUI がエラーになる。
+  - 従来の `input_image`（動画生成）は「全 `LoadImage` を同じ画像にする」ままで変更なし。
+  - プロンプト差し替えを `CLIPTextEncode` の `text` に加えて、`TextEncode*` 系の
+    `prompt` 入力にも対応させた（`TextEncodeQwenImageEditPlus` 用）。negative の判定は従来どおり
+    タイトルのキーワードと「他ノードの `negative` 入力に接続されているか」。
+- フロント: 下部ストリップを「動画 / 編集」のタブ式にした（`renderStrip` / `renderStripTabs` /
+  `renderVideoCards` / `renderEditCards`）。`renderVideoStrip` は `renderStrip` に改名。
+  画像プロパティに「画像を編集...」ボタン、編集パネル（`renderEditGenContext`）、
+  編集画像プロパティ（`renderEditPropsContext`、昇格ボタン付き）を追加。
+  参照画像はグリッドのカードを `application/x-item-id` でドロップして渡す。
+  NEW バッジ・★・複数選択・Del / F キー・ドロップ登録は動画と同じ操作体系にそろえた。
+- 検証: `tests/test_library_core.py` と `tests/test_generation_service.py` に編集画像の
+  CRUD・昇格・生成（ComfyUI モック）を追加して ALL OK。既存 5 本のテストも ALL OK。
+  一時ライブラリ + テストサーバー（8799）で edits API 一式を HTTP 越しに確認し、
+  ヘッドレス Chrome で編集パネル・編集ストリップ・編集画像プロパティの表示を確認した。
+  **実 GPU での ComfyUI 実行（Qwen-Rapid-AIO）は未確認**。
 
 ### フォルダ画像の一括出力（2026-08-07）
 

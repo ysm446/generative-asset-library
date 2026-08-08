@@ -440,6 +440,83 @@ def delete_videos(item_id: str, body: VideosDelete) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 編集画像（派生画像）
+# ---------------------------------------------------------------------------
+
+
+@router.post("/items/{item_id}/edits")
+async def add_edit(
+    item_id: str,
+    file: UploadFile | None = None,
+    prompt: str = Form(""),
+    workflow: str = Form(""),
+) -> dict[str, Any]:
+    if file is None:
+        raise HTTPException(status_code=400, detail="file is required")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(status_code=400, detail=f"未対応の画像形式です: {ext or '(不明)'}")
+    data = await file.read()
+    return _wrap(items.add_edit, item_id, data, ext=ext, prompt=prompt, workflow=workflow)
+
+
+class EditUpdate(BaseModel):
+    prompt: str | None = None
+    workflow: str | None = None
+    settings: dict[str, Any] | None = None
+    favorite: bool | None = None
+
+
+@router.patch("/items/{item_id}/edits/{file_name}")
+def update_edit(item_id: str, file_name: str, body: EditUpdate) -> dict[str, Any]:
+    fields = body.model_dump(exclude_unset=True)
+    return _wrap(items.update_edit, item_id, file_name, fields)
+
+
+@router.delete("/items/{item_id}/edits/{file_name}")
+def remove_edit(item_id: str, file_name: str) -> dict[str, Any]:
+    return _wrap(items.remove_edit, item_id, file_name)
+
+
+@router.post("/items/{item_id}/edits/{file_name}/promote")
+def promote_edit(item_id: str, file_name: str) -> dict[str, Any]:
+    """編集画像を独立した画像アイテムとして複製する（動画生成・検索に使えるようになる）。"""
+    return _wrap(items.promote_edit, item_id, file_name)
+
+
+@router.post("/items/{item_id}/edits/{file_name}/reveal")
+def reveal_edit(item_id: str, file_name: str) -> dict[str, bool]:
+    """編集画像をエクスプローラーで選択表示する。"""
+    d = _wrap(items.item_dir, item_id)
+    name = file_name.replace("\\", "/").split("/")[-1]
+    target = (d / paths.EDITS_DIR_NAME / name).resolve()
+    if d.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="edit not found")
+    return _reveal(target)
+
+
+class EditsDelete(BaseModel):
+    files: list[str]
+
+
+@router.post("/items/{item_id}/edits/delete")
+def delete_edits(item_id: str, body: EditsDelete) -> dict[str, Any]:
+    """複数の編集画像を一括削除する。"""
+    deleted = 0
+    for name in body.files:
+        try:
+            items.remove_edit(item_id, name)
+            deleted += 1
+        except items.NotFound:
+            continue
+    item = _wrap(items.get_item, item_id)
+    item["deleted"] = deleted
+    return item
+
+
+# ---------------------------------------------------------------------------
 # ファイル配信・インデックス
 # ---------------------------------------------------------------------------
 

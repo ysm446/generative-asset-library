@@ -70,6 +70,39 @@ def main() -> None:
     assert [v["file"] for v in meta["videos"]] == ["videos/v002.mp4"]
     assert not (item_dir / "videos" / "v001.mp4").exists()
 
+    # 編集画像（派生画像）の追加・更新・削除
+    meta = items.add_edit(item_id, make_png(), prompt="pencil sketch", workflow="qwen_edit")
+    assert meta["edits"][0]["file"] == "edits/e001.png"
+    assert (item_dir / "edits" / "e001.png").is_file()
+    assert (item_dir / "edits" / "e001.thumb.jpg").is_file()
+    meta = items.add_edit(item_id, make_png())
+    assert meta["edits"][1]["file"] == "edits/e002.png"
+    assert index_db.get_item_row(item_id)["edit_count"] == 2
+    meta = items.update_edit(item_id, "e001.png", {"favorite": True})
+    assert meta["edits"][0]["favorite"] is True
+    row = index_db.get_item_row(item_id)
+    assert row["fav_edit_count"] == 1 and index_db.is_favorite(row)
+    assert len(index_db.list_items("風景/海", favorite_only=True)) == 1
+    items.update_edit(item_id, "e001.png", {"favorite": False})  # 以降の★判定に影響させない
+    meta = items.remove_edit(item_id, "edits/e002.png")
+    assert [e["file"] for e in meta["edits"]] == ["edits/e001.png"]
+    assert not (item_dir / "edits" / "e002.png").exists()
+
+    # 編集画像を独立アイテムに昇格（元の編集画像は残る）
+    promoted = items.promote_edit(item_id, "e001.png")
+    assert promoted["source"] == {
+        "item_id": item_id,
+        "kind": "edit",
+        "file": "edits/e001.png",
+        "workflow": "qwen_edit",
+    }
+    assert promoted["prompt"] == "pencil sketch"
+    assert promoted["folder"] == "風景/海"
+    assert promoted["sort_order"] > index_db.get_item_row(item_id)["sort_order"]
+    assert (items.item_dir(promoted["id"]) / "thumb.jpg").is_file()
+    assert items.get_item(item_id)["edits"][0]["promoted_to"] == promoted["id"]
+    items.delete_item(promoted["id"])
+
     # アイテム更新・移動
     meta = items.update_item(item_id, {"tags": ["sea", "favorite"], "caption": "夕暮れの海"})
     assert index_db.search_items("favorite")[0]["id"] == item_id

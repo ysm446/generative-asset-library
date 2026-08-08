@@ -24,6 +24,7 @@ DEFAULT_LIBRARY_DIR = BASE_DIR / "data" / "library"
 STUDIO_DIR_NAME = ".studio"
 META_NAME = "meta.json"
 VIDEOS_DIR_NAME = "videos"
+EDITS_DIR_NAME = "edits"
 
 _ITEM_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 
@@ -105,6 +106,6 @@ def validate_folder_name(name: str) -> str:
     name = (name or "").strip()
     if not name or name.startswith(".") or _FOLDER_NAME_BAD.search(name):
         raise ValueError(f"invalid folder name: {name!r}")
-    if name in (STUDIO_DIR_NAME, VIDEOS_DIR_NAME) or is_item_id(name):
+    if name in (STUDIO_DIR_NAME, VIDEOS_DIR_NAME, EDITS_DIR_NAME) or is_item_id(name):
         raise ValueError(f"reserved folder name: {name!r}")
     return name

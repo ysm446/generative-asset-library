@@ -29,10 +29,21 @@ CREATE TABLE IF NOT EXISTS items (
     video_count INTEGER DEFAULT 0,
     sort_order REAL DEFAULT 0,
     favorite INTEGER DEFAULT 0,
-    fav_video_count INTEGER DEFAULT 0
+    fav_video_count INTEGER DEFAULT 0,
+    edit_count INTEGER DEFAULT 0,
+    fav_edit_count INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder);
 CREATE TABLE IF NOT EXISTS videos (
+    item_id TEXT NOT NULL,
+    file TEXT NOT NULL,
+    prompt TEXT DEFAULT '',
+    workflow TEXT DEFAULT '',
+    created_at TEXT,
+    favorite INTEGER DEFAULT 0,
+    PRIMARY KEY (item_id, file)
+);
+CREATE TABLE IF NOT EXISTS edits (
     item_id TEXT NOT NULL,
     file TEXT NOT NULL,
     prompt TEXT DEFAULT '',
@@ -60,6 +71,8 @@ _ADDED_COLUMNS = {
         "sort_order": "REAL DEFAULT 0",
         "favorite": "INTEGER DEFAULT 0",
         "fav_video_count": "INTEGER DEFAULT 0",
+        "edit_count": "INTEGER DEFAULT 0",
+        "fav_edit_count": "INTEGER DEFAULT 0",
     },
     "videos": {"favorite": "INTEGER DEFAULT 0"},
 }
@@ -94,13 +107,14 @@ def upsert_item(meta: dict[str, Any], folder: str, conn: sqlite3.Connection | No
     conn = conn or connect()
     try:
         videos = meta.get("videos") or []
+        edits = meta.get("edits") or []
         conn.execute(
             """
             INSERT OR REPLACE INTO items
                 (id, folder, created_at, image, thumb, prompt, negative_prompt,
                  caption, seed, params, tags, video_count, sort_order,
-                 favorite, fav_video_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 favorite, fav_video_count, edit_count, fav_edit_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 meta["id"],
@@ -118,6 +132,8 @@ def upsert_item(meta: dict[str, Any], folder: str, conn: sqlite3.Connection | No
                 float(meta.get("sort_order") or 0),
                 1 if meta.get("favorite") else 0,
                 sum(1 for v in videos if v.get("favorite")),
+                len(edits),
+                sum(1 for e in edits if e.get("favorite")),
             ),
         )
         conn.execute("DELETE FROM videos WHERE item_id = ?", (meta["id"],))
@@ -133,6 +149,21 @@ def upsert_item(meta: dict[str, Any], folder: str, conn: sqlite3.Connection | No
                     v.get("workflow") or "",
                     v.get("created_at"),
                     1 if v.get("favorite") else 0,
+                ),
+            )
+        conn.execute("DELETE FROM edits WHERE item_id = ?", (meta["id"],))
+        for e in edits:
+            conn.execute(
+                "INSERT OR REPLACE INTO edits"
+                " (item_id, file, prompt, workflow, created_at, favorite)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    meta["id"],
+                    e.get("file"),
+                    e.get("prompt") or "",
+                    e.get("workflow") or "",
+                    e.get("created_at"),
+                    1 if e.get("favorite") else 0,
                 ),
             )
         conn.execute("DELETE FROM items_fts WHERE id = ?", (meta["id"],))
@@ -159,6 +190,7 @@ def remove_item(item_id: str, conn: sqlite3.Connection | None = None) -> None:
     try:
         conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
         conn.execute("DELETE FROM videos WHERE item_id = ?", (item_id,))
+        conn.execute("DELETE FROM edits WHERE item_id = ?", (item_id,))
         conn.execute("DELETE FROM items_fts WHERE id = ?", (item_id,))
         conn.execute("DELETE FROM item_embeddings WHERE item_id = ?", (item_id,))
         conn.commit()
@@ -177,8 +209,12 @@ def get_item_row(item_id: str) -> dict[str, Any] | None:
 
 
 def is_favorite(item: dict[str, Any]) -> bool:
-    """お気に入り扱いか（画像自体が★、または★付き動画を持つ）。"""
-    return bool(item.get("favorite")) or (item.get("fav_video_count") or 0) > 0
+    """お気に入り扱いか（画像自体が★、または★付きの動画・編集画像を持つ）。"""
+    return (
+        bool(item.get("favorite"))
+        or (item.get("fav_video_count") or 0) > 0
+        or (item.get("fav_edit_count") or 0) > 0
+    )
 
 
 def list_items(
@@ -196,7 +232,7 @@ def list_items(
             where.append("folder = ?")
             args.append(folder)
         if favorite_only:
-            where.append("(favorite = 1 OR fav_video_count > 0)")
+            where.append("(favorite = 1 OR fav_video_count > 0 OR fav_edit_count > 0)")
         sql = "SELECT * FROM items"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -281,6 +317,7 @@ def rebuild() -> int:
     try:
         conn.execute("DELETE FROM items")
         conn.execute("DELETE FROM videos")
+        conn.execute("DELETE FROM edits")
         conn.execute("DELETE FROM items_fts")
         conn.commit()
         count = 0

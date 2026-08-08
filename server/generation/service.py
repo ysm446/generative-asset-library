@@ -138,6 +138,70 @@ def generate_image_to_item(params: dict[str, Any], status: StatusFn) -> dict[str
     return item
 
 
+def generate_edit_for_item(params: dict[str, Any], status: StatusFn) -> dict[str, Any]:
+    """アイテムの画像を編集（スタイル変換など）し、そのアイテムに紐づけて保存する。"""
+    item_id = params["item_id"]
+    prompt = params.get("prompt", "")
+    workflow = params.get("workflow", "")
+    seed = int(params.get("seed", -1))
+
+    d = items.item_dir(item_id)
+    meta = items.get_item(item_id)
+    image = Image.open(d / meta["image"]).copy()
+
+    # 参照画像（image2 以降）。ライブラリの他アイテムを ID で指定する
+    inputs = [image]
+    for ref_id in params.get("refs") or []:
+        try:
+            ref_dir = items.item_dir(str(ref_id))
+            ref_meta = items.get_item(str(ref_id))
+            inputs.append(Image.open(ref_dir / ref_meta["image"]).copy())
+        except (items.NotFound, OSError):
+            status(f"参照画像が見つからないため無視します: {ref_id}")
+
+    if comfy_process.is_enabled():
+        status("ComfyUI の起動を確認中...")
+        comfy_process.wait_until_ready()
+
+    wf_path = comfy_client.EDIT_WORKFLOW_PRESETS.get(workflow, workflow)
+    status("画像を編集中...")
+    result = comfy_client.generate_image(
+        workflow_path=wf_path,
+        positive=prompt,
+        negative=params.get("negative", ""),
+        seed=seed,
+        width=int(params["width"]) if params.get("width") else None,
+        height=int(params["height"]) if params.get("height") else None,
+        input_images=inputs,
+    )
+    if not isinstance(result, Image.Image):
+        raise RuntimeError("画像ではなく動画が出力されました。ワークフロー選択を確認してください。")
+    used_seed = comfy_client.get_last_actual_seed()
+    if used_seed < 0:
+        used_seed = seed
+
+    status("ライブラリに保存中...")
+    settings = {
+        "prompt": prompt,
+        "workflow": workflow,
+        "width": params.get("width", ""),
+        "height": params.get("height", ""),
+        "seed": used_seed,
+        "refs": list(params.get("refs") or []),
+    }
+    result_meta = items.add_edit(
+        item_id,
+        image_to_png_bytes(result),
+        prompt=prompt,
+        workflow=workflow,
+        settings=settings,
+    )
+    # 最後に使った設定をアイテムに保存（次回のパネル復元用）
+    items.update_item(item_id, {"edit_settings": settings})
+    result_meta["edit_settings"] = settings
+    return result_meta
+
+
 def generate_video_for_item(params: dict[str, Any], status: StatusFn) -> dict[str, Any]:
     """アイテムの画像を基に動画を生成し、そのアイテムに紐づけて保存する。"""
     item_id = params["item_id"]

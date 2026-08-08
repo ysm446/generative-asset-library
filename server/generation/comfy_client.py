@@ -9,6 +9,7 @@ ComfyUI API クライアント（REST + WebSocket）
 import json
 import os
 import random
+import re
 import tempfile
 import uuid
 from io import BytesIO
@@ -43,6 +44,7 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 _WORKFLOWS_DIR = os.path.join(_BASE_DIR, "workflows")
 _IMAGE_WORKFLOWS_DIR = os.path.join(_WORKFLOWS_DIR, "image")
 _VIDEO_WORKFLOWS_DIR = os.path.join(_WORKFLOWS_DIR, "video")
+_EDIT_WORKFLOWS_DIR = os.path.join(_WORKFLOWS_DIR, "edit")
 
 
 def _scan_workflows(directory: str | None = None) -> dict[str, str]:
@@ -62,12 +64,15 @@ def _scan_workflows(directory: str | None = None) -> dict[str, str]:
 WORKFLOW_PRESETS: dict[str, str] = {
     **_scan_workflows(_IMAGE_WORKFLOWS_DIR),
     **_scan_workflows(_VIDEO_WORKFLOWS_DIR),
+    **_scan_workflows(_EDIT_WORKFLOWS_DIR),
     **_scan_workflows(),  # ルート直下の .json もフォールバックとして含める
 }
 # 画像ワークフロー専用
 IMAGE_WORKFLOW_PRESETS: dict[str, str] = _scan_workflows(_IMAGE_WORKFLOWS_DIR) or _scan_workflows()
 # 動画ワークフロー専用
 VIDEO_WORKFLOW_PRESETS: dict[str, str] = _scan_workflows(_VIDEO_WORKFLOWS_DIR) or _scan_workflows()
+# 画像編集ワークフロー専用（無ければ空。画像ワークフローとは別物なのでフォールバックしない）
+EDIT_WORKFLOW_PRESETS: dict[str, str] = _scan_workflows(_EDIT_WORKFLOWS_DIR)
 
 
 def _get_url() -> str:
@@ -107,11 +112,14 @@ def get_samplers() -> list[str]:
 def reload_workflows():
     """workflows/ 以下を再スキャンして各 PRESETS を更新する。"""
     global WORKFLOW_PRESETS, IMAGE_WORKFLOW_PRESETS, VIDEO_WORKFLOW_PRESETS
+    global EDIT_WORKFLOW_PRESETS
     IMAGE_WORKFLOW_PRESETS = _scan_workflows(_IMAGE_WORKFLOWS_DIR) or _scan_workflows()
     VIDEO_WORKFLOW_PRESETS = _scan_workflows(_VIDEO_WORKFLOWS_DIR) or _scan_workflows()
+    EDIT_WORKFLOW_PRESETS = _scan_workflows(_EDIT_WORKFLOWS_DIR)
     WORKFLOW_PRESETS = {
         **_scan_workflows(_IMAGE_WORKFLOWS_DIR),
         **_scan_workflows(_VIDEO_WORKFLOWS_DIR),
+        **_scan_workflows(_EDIT_WORKFLOWS_DIR),
         **_scan_workflows(),
     }
 
@@ -186,6 +194,63 @@ _VIDEO_LATENT_NODES = (
 )
 
 
+def _node_sort_key(node_id: str):
+    """ノード ID を数値優先で並べるためのキー（"7" < "10" < "a"）。"""
+    return (0, int(node_id), "") if node_id.isdigit() else (1, 0, node_id)
+
+
+def _ordered_load_image_nodes(workflow: dict) -> list[str]:
+    """LoadImage ノード ID を、参照側の image1/image2/... の順で返す。
+
+    Qwen Image Edit のように複数の参照画像を取るワークフローでは、
+    どの LoadImage が何枚目かを接続から決める必要がある。
+    imageN 入力を持つノードが無ければノード ID 順にフォールバックする。
+    """
+    load_ids = {
+        node_id
+        for node_id, node in workflow.items()
+        if isinstance(node, dict) and node.get("class_type") == "LoadImage"
+    }
+    ordered: list[str] = []
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs") or {}
+        keys = sorted(
+            (k for k in inputs if re.fullmatch(r"image(\d+)", str(k))),
+            key=lambda k: int(str(k)[5:]),
+        )
+        for key in keys:
+            val = inputs[key]
+            if isinstance(val, list) and val and str(val[0]) in load_ids:
+                if str(val[0]) not in ordered:
+                    ordered.append(str(val[0]))
+    for node_id in sorted(load_ids, key=_node_sort_key):
+        if node_id not in ordered:
+            ordered.append(node_id)
+    return ordered
+
+
+def _drop_image_nodes(workflow: dict, node_ids: list[str]) -> None:
+    """使わない LoadImage ノードと、それを指す入力（imageN 等）を取り除く。
+
+    参照が残ったままだと存在しないファイルを読もうとして ComfyUI がエラーになる。
+    """
+    drop = set(node_ids)
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs") or {}
+        for key in [
+            k
+            for k, v in inputs.items()
+            if isinstance(v, list) and v and str(v[0]) in drop
+        ]:
+            del inputs[key]
+    for node_id in drop:
+        workflow.pop(node_id, None)
+
+
 def _patch_workflow(
     workflow: dict,
     positive: str,
@@ -195,11 +260,12 @@ def _patch_workflow(
     height: int | None = None,
     frames: int | None = None,
     input_image_name: str | None = None,
+    input_image_names: list[str] | None = None,
 ) -> dict:
     """
     ワークフロー JSON のプロンプト・seed・サイズを差し替える。
 
-    CLIPTextEncode:
+    CLIPTextEncode / TextEncode 系（TextEncodeQwenImageEditPlus など）:
       - タイトルに "negative"/"ネガティブ"/"neg" を含む、または他ノードの "negative" 入力に接続 → negative
       - それ以外 → positive
     KSampler / KSamplerAdvanced / RandomNoise:
@@ -211,6 +277,14 @@ def _patch_workflow(
     """
     import copy
     patched = copy.deepcopy(workflow)
+
+    # 複数の参照画像が指定されたときは、接続順に 1 枚ずつ割り当てて余りは切り離す
+    #（LoadImage を全部同じ画像にすると、同じ絵を複数枚渡したことになってしまう）
+    if input_image_names is not None:
+        load_ids = _ordered_load_image_nodes(patched)
+        for node_id, name in zip(load_ids, input_image_names):
+            patched[node_id]["inputs"]["image"] = name
+        _drop_image_nodes(patched, load_ids[len(input_image_names):])
 
     actual_seed = random.randint(0, 2**32 - 1) if seed == -1 else seed
 
@@ -233,11 +307,20 @@ def _patch_workflow(
         inputs = node.get("inputs", {})
         title = (node.get("_meta", {}).get("title", "") or "").lower()
 
-        if class_type == "CLIPTextEncode":
+        # プロンプト入力は CLIPTextEncode の "text" のほか、
+        # TextEncodeQwenImageEditPlus のように "prompt" を使うノードもある
+        text_field = ""
+        if class_type == "CLIPTextEncode" or "TextEncode" in class_type:
+            for field in ("text", "prompt"):
+                if isinstance(inputs.get(field), str):
+                    text_field = field
+                    break
+
+        if text_field:
             if any(kw in title for kw in _neg_keywords) or node_id in negative_node_ids:
-                inputs["text"] = negative
+                inputs[text_field] = negative
             else:
-                inputs["text"] = positive
+                inputs[text_field] = positive
 
         elif class_type in ("KSampler", "KSamplerAdvanced"):
             if "seed" in inputs:
@@ -284,12 +367,14 @@ def generate_image(
     height: int | None = None,
     frames: int | None = None,
     input_image: Image.Image | None = None,
+    input_images: list[Image.Image] | None = None,
 ) -> "Image.Image | str":
     """
     ワークフロー JSON のプロンプト・seed・サイズを差し替えて ComfyUI で生成する。
     画像ワークフローは PIL.Image を返す。動画ワークフローはファイルパス (str) を返す。
     seed=-1 はランダム、width/height=None はワークフロー側の値をそのまま使う。
     input_image が指定された場合は ComfyUI にアップロードして LoadImage ノードに差し替える。
+    input_images（画像編集の参照画像）は接続順に 1 枚ずつ割り当て、余った LoadImage は外す。
     """
     if not workflow_path or not os.path.isfile(workflow_path):
         raise FileNotFoundError(f"ワークフローファイルが見つかりません: {workflow_path}")
@@ -301,6 +386,12 @@ def generate_image(
     if input_image is not None:
         input_image_name = upload_image(input_image, "video_input.png")
 
+    input_image_names = None
+    if input_images is not None:
+        input_image_names = [
+            upload_image(img, f"edit_input_{i + 1}.png") for i, img in enumerate(input_images)
+        ]
+
     actual_seed = random.randint(0, 2**32 - 1) if seed == -1 else int(seed)
     global _last_actual_seed
     _last_actual_seed = actual_seed
@@ -309,6 +400,7 @@ def generate_image(
         workflow, positive, negative,
         seed=actual_seed, width=width, height=height,
         frames=frames, input_image_name=input_image_name,
+        input_image_names=input_image_names,
     )
 
     client_id = str(uuid.uuid4())

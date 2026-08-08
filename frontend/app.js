@@ -20,15 +20,26 @@ const state = {
   selectedId: null,
   selectedIds: new Set(), // 複数選択（一括削除用）
   anchorIndex: null, // Shift 選択の起点
-  currentItem: null, // 選択中画像の詳細（動画一覧を含む）
+  currentItem: null, // 選択中画像の詳細（動画・編集画像の一覧を含む）
   selectedVideoFile: null, // 下部ストリップでフォーカス中の動画 file
   selectedVideoFiles: new Set(), // 動画の複数選択（一括削除用）
   videoAnchorIndex: null, // Shift 選択の起点
   autoPlayVideo: false, // 次の動画プロパティ表示で自動再生するか（サムネのクリック時だけ true）
+  stripTab: "videos", // 下部ストリップの表示中タブ（"videos" | "edits"）
+  selectedEditFile: null, // ストリップでフォーカス中の編集画像 file
+  selectedEditFiles: new Set(), // 編集画像の複数選択（一括削除用）
+  editAnchorIndex: null, // Shift 選択の起点
   query: "",
   videoPanel: false, // 画像選択中に動画生成パネルを表示するか
+  editPanel: false, // 画像選択中に画像編集パネルを表示するか
   genBusy: false,
-  options: { backends: [], forge_samplers: [], image_workflows: [], video_workflows: [] },
+  options: {
+    backends: [],
+    forge_samplers: [],
+    image_workflows: [],
+    video_workflows: [],
+    edit_workflows: [],
+  },
   genImage: {
     backend: "WebUI Forge",
     positive: "",
@@ -52,6 +63,14 @@ const state = {
     sections: ["scene", "action", "camera", "style", "prompt"],
     unload_llm: true, // 動画生成前に LLM をアンロードして VRAM を空ける
   },
+  genEdit: {
+    prompt: "",
+    workflow: "",
+    width: "",
+    height: "",
+    seed: -1,
+    refs: [], // 追加の参照画像アイテム ID（Qwen Image Edit の image2 以降）
+  },
   rootInfo: null, // /api/library/root の結果
   llm: { models: [], loaded: null, selected: "" },
   genRef: null, // 生成パネル上部に表示する基準画像 {id, image, label}
@@ -60,6 +79,7 @@ const state = {
   queue: [], // 生成キュー
   lastImageSeed: null, // 復元用（直近の画像シード）
   lastVideoSeed: null, // 復元用（直近の動画シード）
+  lastEditSeed: null, // 復元用（直近の編集シード）
 };
 
 // Seed 入力（🎲 ランダム / ♻ 直近シード復元 ボタン付き）
@@ -447,6 +467,7 @@ function updateHash() {
   if (state.folder) p.set("folder", state.folder);
   if (state.selectedId) p.set("item", state.selectedId);
   if (state.videoPanel) p.set("video", "1");
+  if (state.editPanel) p.set("edit", "1");
   const next = p.toString();
   if (location.hash.slice(1) !== next) location.hash = next;
 }
@@ -457,6 +478,7 @@ async function selectFolder(rel) {
   state.selectedIds = new Set();
   state.anchorIndex = null;
   state.videoPanel = false;
+  state.editPanel = false;
   state.query = "";
   state.genRef = null; // 別フォルダに移ったら基準画像はクリア
   state.genNearId = null;
@@ -626,6 +648,7 @@ async function loadItems() {
 // 所属フォルダ（id → rel）も控えて、フォルダツリーの NEW 表示に使う。
 const NEW_ITEMS_KEY = "studio_new_item_ids";
 const NEW_VIDEOS_KEY = "studio_new_video_ids";
+const NEW_EDITS_KEY = "studio_new_edit_ids";
 const NEW_FOLDERS_KEY = "studio_new_item_folders";
 
 function loadNewSet(key) {
@@ -643,6 +666,7 @@ function persistNewSet(key, set) {
 
 const newItemIds = loadNewSet(NEW_ITEMS_KEY);
 const newVideoIds = loadNewSet(NEW_VIDEOS_KEY);
+const newEditIds = loadNewSet(NEW_EDITS_KEY);
 
 let newItemFolders;
 try {
@@ -658,7 +682,7 @@ function persistNewFolders() {
 // 新着アイテムの所属フォルダを控える（NEW でないアイテムは対象外）。変化があれば true
 function setNewItemFolder(id, folder) {
   if (typeof folder !== "string") return false;
-  if (!newItemIds.has(id) && !hasNewVideo(id)) return false;
+  if (!newItemIds.has(id) && !hasNewVideo(id) && !hasNewEdit(id)) return false;
   if (newItemFolders[id] === folder) return false;
   newItemFolders[id] = folder;
   persistNewFolders();
@@ -667,7 +691,7 @@ function setNewItemFolder(id, folder) {
 
 // id が NEW でなくなっていたら所属フォルダの控えも消す
 function pruneNewFolder(id) {
-  if (newItemIds.has(id) || hasNewVideo(id)) return;
+  if (newItemIds.has(id) || hasNewVideo(id) || hasNewEdit(id)) return;
   if (id in newItemFolders) {
     delete newItemFolders[id];
     persistNewFolders();
@@ -713,19 +737,54 @@ function hasNewVideo(itemId) {
   return false;
 }
 
-// 削除された動画の NEW キーを掃除する（アイテムの動画一覧が分かったとき）
-function pruneNewVideos(item) {
+function markEditNew(itemId, file, folder) {
+  newEditIds.add(`${itemId}/${file}`);
+  persistNewSet(NEW_EDITS_KEY, newEditIds);
+  setNewItemFolder(itemId, folder);
+}
+
+function markEditSeen(itemId, file) {
+  const removed = newEditIds.delete(`${itemId}/${file}`);
+  if (removed) {
+    persistNewSet(NEW_EDITS_KEY, newEditIds);
+    pruneNewFolder(itemId);
+    renderTree();
+  }
+  return removed;
+}
+
+// 未確認の新規編集画像を持つ画像か
+function hasNewEdit(itemId) {
+  const prefix = `${itemId}/`;
+  for (const key of newEditIds) {
+    if (key.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+// 削除された動画・編集画像の NEW キーを掃除する（アイテムの一覧が分かったとき）
+function pruneNewSubAssets(item) {
   if (!item?.id) return;
-  const files = new Set((item.videos || []).map((v) => `${item.id}/${v.file}`));
   let changed = false;
-  for (const key of [...newVideoIds]) {
-    if (key.startsWith(`${item.id}/`) && !files.has(key)) {
-      newVideoIds.delete(key);
+  const sets = [
+    [newVideoIds, NEW_VIDEOS_KEY, item.videos || []],
+    [newEditIds, NEW_EDITS_KEY, item.edits || []],
+  ];
+  for (const [set, key, entries] of sets) {
+    const files = new Set(entries.map((e) => `${item.id}/${e.file}`));
+    let setChanged = false;
+    for (const k of [...set]) {
+      if (k.startsWith(`${item.id}/`) && !files.has(k)) {
+        set.delete(k);
+        setChanged = true;
+      }
+    }
+    if (setChanged) {
+      persistNewSet(key, set);
       changed = true;
     }
   }
   if (changed) {
-    persistNewSet(NEW_VIDEOS_KEY, newVideoIds);
     pruneNewFolder(item.id);
     renderTree();
   }
@@ -734,18 +793,23 @@ function pruneNewVideos(item) {
 // アイテム削除時: NEW 状態と所属フォルダの控えをまとめて消す
 function clearNewForItem(id) {
   if (newItemIds.delete(id)) persistNewSet(NEW_ITEMS_KEY, newItemIds);
-  let videosChanged = false;
-  for (const key of [...newVideoIds]) {
-    if (key.startsWith(`${id}/`)) {
-      newVideoIds.delete(key);
-      videosChanged = true;
+  for (const [set, key] of [
+    [newVideoIds, NEW_VIDEOS_KEY],
+    [newEditIds, NEW_EDITS_KEY],
+  ]) {
+    let changed = false;
+    for (const k of [...set]) {
+      if (k.startsWith(`${id}/`)) {
+        set.delete(k);
+        changed = true;
+      }
     }
+    if (changed) persistNewSet(key, set);
   }
-  if (videosChanged) persistNewSet(NEW_VIDEOS_KEY, newVideoIds);
   pruneNewFolder(id);
 }
 
-// フォルダ rel ごとの新着の有無（img: 新規画像 / vid: 未確認の新規動画）
+// フォルダ rel ごとの新着の有無（img: 新規画像 / vid: 未確認の新規動画・編集画像）
 function newFolderSets() {
   const img = new Set();
   const vid = new Set();
@@ -753,7 +817,7 @@ function newFolderSets() {
     const f = newItemFolders[id];
     if (typeof f === "string") img.add(f);
   }
-  for (const key of newVideoIds) {
+  for (const key of [...newVideoIds, ...newEditIds]) {
     const f = newItemFolders[key.split("/")[0]];
     if (typeof f === "string") vid.add(f);
   }
@@ -781,11 +845,11 @@ function remapNewFolders(oldRel, newRel) {
   if (changed) persistNewFolders();
 }
 
-// NEW バッジ。video=true は動画由来（琥珀色・🎞 付き）
-function makeNewBadge(video = false) {
+// NEW バッジ。kind="video" / "edit" はサブアセット由来（琥珀色・アイコン付き）
+function makeNewBadge(kind = "") {
   const nb = document.createElement("span");
-  nb.className = "new-badge" + (video ? " video" : "");
-  if (video) setIconLabel(nb, "film", "NEW");
+  nb.className = "new-badge" + (kind ? " video" : "");
+  if (kind) setIconLabel(nb, kind === "edit" ? "pencil" : "film", "NEW");
   else nb.textContent = "NEW";
   return nb;
 }
@@ -815,19 +879,36 @@ function setFavStarState(btn, on) {
   btn.title = on ? "お気に入りを外す（F）" : "お気に入りに追加（F）";
 }
 
-// 動画の件数バッジ（★付き動画があれば金色にして★を添える）
-function makeVideoBadge(item) {
-  if (!(item.video_count > 0)) return null;
+// 動画・編集画像の件数バッジ（★付きがあれば金色にして★を添える）
+function makeCountBadge(item, kind) {
+  const video = kind === "video";
+  const count = (video ? item.video_count : item.edit_count) || 0;
+  if (!(count > 0)) return null;
   const badge = document.createElement("span");
-  badge.className = "badge";
-  setIconLabel(badge, "film", String(item.video_count));
-  const fav = item.fav_video_count || 0;
+  badge.className = `badge badge-${kind}`;
+  setIconLabel(badge, video ? "film" : "pencil", String(count));
+  const label = video ? "動画" : "編集画像";
+  badge.title = `${label} ${count} 件`;
+  const fav = (video ? item.fav_video_count : item.fav_edit_count) || 0;
   if (fav > 0) {
     badge.classList.add("has-fav");
-    badge.title = `動画 ${item.video_count} 件（お気に入り ${fav} 件）`;
+    badge.title = `${label} ${count} 件（お気に入り ${fav} 件）`;
     badge.insertAdjacentHTML("beforeend", iconSvg("star", "fav-mark"));
   }
   return badge;
+}
+
+// カードに動画・編集画像のバッジを付け直す（編集画像は動画の左隣に並べる）
+function applyCountBadges(card, item) {
+  card.querySelectorAll(".badge").forEach((b) => b.remove());
+  const video = makeCountBadge(item, "video");
+  if (video) card.appendChild(video);
+  const edit = makeCountBadge(item, "edit");
+  if (edit) {
+    // 動画バッジがあるときはさらに左へずらす
+    if (video) edit.classList.add("is-second");
+    card.appendChild(edit);
+  }
 }
 
 function renderGrid() {
@@ -905,8 +986,7 @@ function renderGrid() {
     img.alt = item.prompt || item.id;
     card.appendChild(img);
 
-    const badge = makeVideoBadge(item);
-    if (badge) card.appendChild(badge);
+    applyCountBadges(card, item);
 
     card.appendChild(
       makeFavStar(item.favorite, () => setItemsFavorite([item.id], !item.favorite))
@@ -915,10 +995,10 @@ function renderGrid() {
     if (newItemIds.has(item.id)) {
       card.classList.add("is-new");
       card.appendChild(makeNewBadge());
-    } else if (hasNewVideo(item.id)) {
-      // 未確認の新規動画がある画像にも NEW（動画側をクリックすると消える）
+    } else if (hasNewVideo(item.id) || hasNewEdit(item.id)) {
+      // 未確認の新規動画・編集画像がある画像にも NEW（そちらをクリックすると消える）
       card.classList.add("is-new-video");
-      card.appendChild(makeNewBadge(true));
+      card.appendChild(makeNewBadge(hasNewVideo(item.id) ? "video" : "edit"));
     }
 
     const caption = document.createElement("div");
@@ -980,10 +1060,19 @@ function renderGrid() {
             },
           },
           {
+            icon: "pencil",
+            label: "画像を編集...",
+            action: async () => {
+              await selectItem(item.id);
+              openEditPanel();
+              await renderContext();
+            },
+          },
+          {
             icon: "trash",
             label: "削除",
             danger: true,
-            action: () => deleteItemById(item.id, item.video_count || 0),
+            action: () => deleteItemById(item.id, item.video_count || 0, item.edit_count || 0),
           }
         );
       }
@@ -1009,23 +1098,21 @@ function updateGridSelection() {
       card.classList.remove("is-new");
       card.querySelector(".new-badge")?.remove();
     }
-    if (card.classList.contains("is-new-video") && !hasNewVideo(id)) {
+    if (card.classList.contains("is-new-video") && !hasNewVideo(id) && !hasNewEdit(id)) {
       card.classList.remove("is-new-video");
       card.querySelector(".new-badge")?.remove();
     }
   }
 }
 
-/** ★と動画バッジの表示だけを差し替える（カードを作り直さない） */
+/** ★と件数バッジの表示だけを差し替える（カードを作り直さない） */
 function updateGridFavorites() {
   for (const card of document.querySelectorAll("#grid .card")) {
     const item = state.items.find((it) => it.id === card.dataset.id);
     if (!item) continue;
     const star = card.querySelector(".fav-star");
     if (star) setFavStarState(star, item.favorite);
-    card.querySelector(".badge")?.remove();
-    const badge = makeVideoBadge(item);
-    if (badge) card.appendChild(badge);
+    applyCountBadges(card, item);
   }
 }
 
@@ -1073,8 +1160,32 @@ async function setVideosFavorite(itemId, files, on) {
   if (state.currentItem?.id === itemId) state.currentItem = meta;
   const item = state.items.find((it) => it.id === itemId);
   if (item) item.fav_video_count = (meta.videos || []).filter((v) => v.favorite).length;
-  renderVideoStrip();
+  renderStrip();
   // ★のみ表示中は、★動画が無くなった画像がグリッドから外れることがある
+  if (favoriteOnly) await run(loadItems);
+  else updateGridFavorites();
+}
+
+/** 編集画像のお気に入りをまとめて切り替える（file は "edits/eNNN.png"） */
+async function setEditsFavorite(itemId, files, on) {
+  if (!files.length) return;
+  const meta = await run(async () => {
+    let res = null;
+    for (const file of files) {
+      const name = file.replace(/\\/g, "/").split("/").pop();
+      res = await apiJson(
+        `/api/library/items/${itemId}/edits/${encodeURIComponent(name)}`,
+        "PATCH",
+        { favorite: on }
+      );
+    }
+    return res;
+  });
+  if (!meta) return;
+  if (state.currentItem?.id === itemId) state.currentItem = meta;
+  const item = state.items.find((it) => it.id === itemId);
+  if (item) item.fav_edit_count = (meta.edits || []).filter((e) => e.favorite).length;
+  renderStrip();
   if (favoriteOnly) await run(loadItems);
   else updateGridFavorites();
 }
@@ -1090,8 +1201,9 @@ function handleCardClick(itemId, index, e) {
     state.selectedId = itemId;
     state.currentItem = null;
     state.selectedVideoFile = null;
+    state.selectedEditFile = null;
     updateGridSelection();
-    renderVideoStrip();
+    renderStrip();
     renderContext();
   } else if (e.ctrlKey || e.metaKey) {
     // トグル選択
@@ -1104,8 +1216,9 @@ function handleCardClick(itemId, index, e) {
       : [...state.selectedIds].at(-1) || null;
     state.currentItem = null;
     state.selectedVideoFile = null;
+    state.selectedEditFile = null;
     updateGridSelection();
-    renderVideoStrip();
+    renderStrip();
     renderContext();
   } else {
     // 単一選択
@@ -1115,12 +1228,20 @@ function handleCardClick(itemId, index, e) {
   }
 }
 
+// 画像を削除するときの「紐づくものも消える」警告文
+function subAssetWarning(videoCount, editCount) {
+  const parts = [];
+  if (videoCount > 0) parts.push(`動画 ${videoCount} 件`);
+  if (editCount > 0) parts.push(`編集画像 ${editCount} 件`);
+  return parts.length ? `\n紐づく${parts.join("・")}も削除されます。` : "";
+}
+
 async function bulkDelete(ids) {
   if (!ids.length) return;
-  const totalVideos = state.items
-    .filter((it) => ids.includes(it.id))
-    .reduce((n, it) => n + (it.video_count || 0), 0);
-  const warn = totalVideos > 0 ? `\n紐づく動画 ${totalVideos} 件も削除されます。` : "";
+  const targets = state.items.filter((it) => ids.includes(it.id));
+  const totalVideos = targets.reduce((n, it) => n + (it.video_count || 0), 0);
+  const totalEdits = targets.reduce((n, it) => n + (it.edit_count || 0), 0);
+  const warn = subAssetWarning(totalVideos, totalEdits);
   if (!confirm(`選択した ${ids.length} 件の画像を削除しますか？${warn}`)) return;
   await run(async () => {
     const res = await apiJson("/api/library/items/delete", "POST", { ids });
@@ -1140,38 +1261,94 @@ async function selectItem(itemId) {
   state.selectedVideoFile = null;
   state.selectedVideoFiles = new Set();
   state.videoAnchorIndex = null;
+  state.selectedEditFile = null;
+  state.selectedEditFiles = new Set();
+  state.editAnchorIndex = null;
   state.videoPanel = false;
+  state.editPanel = false;
   const item = await run(() => api(`/api/library/items/${itemId}`));
   // 矢印キーで連続移動したとき、古い応答が新しい選択を上書きしないようにする
   if (state.selectedId !== itemId) return;
   state.currentItem = item;
-  pruneNewVideos(state.currentItem); // 削除済み動画の NEW を掃除してから描画
+  pruneNewSubAssets(state.currentItem); // 削除済みの動画・編集画像の NEW を掃除してから描画
   updateHash();
   updateGridSelection();
-  renderVideoStrip();
+  renderStrip();
   await renderContext();
 }
 
-// 下部の動画ストリップ（選択画像の動画を横並び表示）
-function renderVideoStrip() {
+// 下部のストリップ（選択画像に紐づく動画 / 編集画像をタブで切り替えて横並び表示）
+function renderStrip() {
   const strip = $("#video-strip");
   const list = $("#video-strip-list");
   const item = state.currentItem;
-  const videos = (item && item.videos) || [];
   // 単一選択のときだけ表示（複数選択中は非表示）
   if (!state.selectedId || state.selectedIds.size > 1) {
     strip.hidden = true;
     list.innerHTML = "";
+    $("#strip-tabs").innerHTML = "";
     return;
   }
   strip.hidden = false;
+  renderStripTabs(item);
+  list.innerHTML = "";
+  if (state.stripTab === "edits") renderEditCards(list, item);
+  else renderVideoCards(list, item);
+}
+
+// ストリップ上部のタブ（動画 / 編集）
+function renderStripTabs(item) {
+  const tabs = $("#strip-tabs");
+  tabs.innerHTML = "";
+  const counts = {
+    videos: (item?.videos || []).length,
+    edits: (item?.edits || []).length,
+  };
+  const hasNew = {
+    videos: item ? hasNewVideo(item.id) : false,
+    edits: item ? hasNewEdit(item.id) : false,
+  };
+  for (const [key, icon, label] of [
+    ["videos", "film", "動画"],
+    ["edits", "pencil", "編集"],
+  ]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "strip-tab";
+    btn.classList.toggle("is-active", state.stripTab === key);
+    btn.classList.toggle("has-new", hasNew[key] && state.stripTab !== key);
+    setIconLabel(btn, icon, `${label}（${counts[key]}）`);
+    btn.addEventListener("click", () => switchStripTab(key));
+    tabs.appendChild(btn);
+  }
+}
+
+async function switchStripTab(tab) {
+  if (state.stripTab === tab) return;
+  state.stripTab = tab;
+  // 表示していないタブの生成パネルは閉じる（右パネルとタブの食い違いを避ける）
+  if (tab === "videos" && state.editPanel) state.editPanel = false;
+  if (tab === "edits" && state.videoPanel) state.videoPanel = false;
+  updateHash();
+  // タブを切り替えたら、もう片方のフォーカス・選択は解除する
+  state.selectedVideoFile = null;
+  state.selectedVideoFiles = new Set();
+  state.videoAnchorIndex = null;
+  state.selectedEditFile = null;
+  state.selectedEditFiles = new Set();
+  state.editAnchorIndex = null;
+  renderStrip();
+  await renderContext();
+}
+
+function renderVideoCards(list, item) {
+  const videos = (item && item.videos) || [];
   const selCount = state.selectedVideoFiles.size;
   $("#video-strip-title").textContent = videos.length
     ? selCount > 1
-      ? `動画（${videos.length}）— ${selCount} 件選択中（Del で削除）`
-      : `動画（${videos.length}）— クリックで再生・プロパティ / Ctrl・Shift で複数選択 / ドロップで追加`
+      ? `${selCount} 件選択中（Del で削除）`
+      : "クリックで再生・プロパティ / Ctrl・Shift で複数選択 / ドロップで追加"
     : "この画像に動画を追加：動画ファイルをここにドロップ";
-  list.innerHTML = "";
   if (videos.length === 0) {
     const hint = document.createElement("div");
     hint.className = "vstrip-empty";
@@ -1198,7 +1375,7 @@ function renderVideoStrip() {
     );
     if (newVideoIds.has(`${item.id}/${v.file}`)) {
       card.classList.add("is-new");
-      card.appendChild(makeNewBadge(true));
+      card.appendChild(makeNewBadge("video"));
     }
     card.addEventListener("click", (e) => handleVideoClick(v.file, index, e));
     card.addEventListener("contextmenu", async (e) => {
@@ -1249,6 +1426,176 @@ function renderVideoStrip() {
   });
 }
 
+// 編集画像（派生画像）のカード
+function renderEditCards(list, item) {
+  const edits = (item && item.edits) || [];
+  const selCount = state.selectedEditFiles.size;
+  $("#video-strip-title").textContent = edits.length
+    ? selCount > 1
+      ? `${selCount} 件選択中（Del で削除）`
+      : "クリックでプロパティ / Ctrl・Shift で複数選択 / 画像のドロップで追加"
+    : "この画像の編集結果：右パネルの「画像を編集...」か、画像ファイルのドロップで追加";
+  if (edits.length === 0) {
+    const hint = document.createElement("div");
+    hint.className = "vstrip-empty";
+    setIconLabel(hint, "pencil", "スタイル変換などの編集結果がここに並びます");
+    list.appendChild(hint);
+  }
+  edits.forEach((ed, index) => {
+    const card = document.createElement("div");
+    card.className = "vstrip-card";
+    if (state.selectedEditFiles.has(ed.file)) card.classList.add("is-selected");
+    if (ed.file === state.selectedEditFile) card.classList.add("is-focused");
+    if (ed.promoted_to) card.classList.add("is-promoted");
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.draggable = false;
+    img.src = `/api/library/file/${item.id}/${ed.thumb || ed.file}`;
+    card.appendChild(img);
+    const label = document.createElement("div");
+    label.className = "vstrip-label";
+    label.textContent = ed.prompt || ed.file.split("/").pop();
+    label.title = ed.file;
+    card.appendChild(label);
+    if (ed.promoted_to) {
+      const mark = document.createElement("span");
+      mark.className = "promoted-mark";
+      mark.textContent = "昇格済み";
+      mark.title = `独立したアイテム ${ed.promoted_to} になっています`;
+      card.appendChild(mark);
+    }
+    card.appendChild(
+      makeFavStar(ed.favorite, () => setEditsFavorite(item.id, [ed.file], !ed.favorite))
+    );
+    if (newEditIds.has(`${item.id}/${ed.file}`)) {
+      card.classList.add("is-new");
+      card.appendChild(makeNewBadge("edit"));
+    }
+    card.addEventListener("click", (e) => handleEditClick(ed.file, index, e));
+    card.addEventListener("contextmenu", async (e) => {
+      e.preventDefault();
+      if (!state.selectedEditFiles.has(ed.file)) await handleEditClick(ed.file, index, {});
+      const files = [...state.selectedEditFiles];
+      const entries = [];
+      if (files.length > 1) {
+        const edits = state.currentItem?.edits || [];
+        const allFav = files.every((f) => edits.find((x) => x.file === f)?.favorite);
+        entries.push({
+          icon: "star",
+          label: allFav
+            ? `選択した ${files.length} 件のお気に入りを外す`
+            : `選択した ${files.length} 件をお気に入りに追加`,
+          action: () => setEditsFavorite(item.id, files, !allFav),
+        });
+        entries.push({
+          icon: "trash",
+          label: `選択した ${files.length} 件を削除`,
+          danger: true,
+          action: () => bulkDeleteEdits(item.id, files),
+        });
+      } else {
+        entries.push(
+          {
+            icon: "star",
+            label: ed.favorite ? "お気に入りを外す" : "お気に入りに追加",
+            action: () => setEditsFavorite(item.id, [ed.file], !ed.favorite),
+          },
+          {
+            icon: "image",
+            label: "独立した画像アイテムにする",
+            action: () => promoteEdit(item.id, ed.file),
+          },
+          {
+            icon: "folder-open",
+            label: "ファイルの場所を開く",
+            action: () => revealEdit(item.id, ed.file),
+          },
+          {
+            icon: "trash",
+            label: "削除",
+            danger: true,
+            action: () => bulkDeleteEdits(item.id, [ed.file]),
+          }
+        );
+      }
+      showContextMenu(e.clientX, e.clientY, entries);
+    });
+    list.appendChild(card);
+  });
+}
+
+// 編集ストリップのクリック（修飾キーで複数選択）
+async function handleEditClick(file, index, e) {
+  if (markEditSeen(state.currentItem?.id ?? state.selectedId, file)) updateGridSelection();
+  // 編集パネル表示中でも、編集画像をクリックしたらそのプロパティ表示へ切り替える
+  if (state.editPanel) {
+    state.editPanel = false;
+    updateHash();
+  }
+  const edits = (state.currentItem?.edits || []).map((ed) => ed.file);
+  if (e.shiftKey && state.editAnchorIndex != null) {
+    const [a, b] = [state.editAnchorIndex, index].sort((x, y) => x - y);
+    state.selectedEditFiles = new Set(edits.slice(a, b + 1));
+    state.selectedEditFile = file;
+  } else if (e.ctrlKey || e.metaKey) {
+    if (state.selectedEditFiles.has(file)) state.selectedEditFiles.delete(file);
+    else state.selectedEditFiles.add(file);
+    state.editAnchorIndex = index;
+    state.selectedEditFile = state.selectedEditFiles.has(file)
+      ? file
+      : [...state.selectedEditFiles].at(-1) || null;
+  } else {
+    state.selectedEditFiles = new Set([file]);
+    state.selectedEditFile = file;
+    state.editAnchorIndex = index;
+  }
+  renderStrip();
+  await renderContext();
+}
+
+async function bulkDeleteEdits(itemId, files) {
+  if (!files.length) return;
+  if (!confirm(`選択した ${files.length} 件の編集画像を削除しますか？`)) return;
+  await run(async () => {
+    const res = await apiJson(`/api/library/items/${itemId}/edits/delete`, "POST", { files });
+    state.selectedEditFiles = new Set();
+    state.selectedEditFile = null;
+    state.currentItem = res;
+    pruneNewSubAssets(res);
+    renderStrip();
+    await renderContext();
+    await loadItems();
+    setStatus(`${res.deleted} 件の編集画像を削除しました`);
+  });
+}
+
+/** 編集画像を独立した画像アイテムに複製する（動画生成・検索に使えるようになる） */
+async function promoteEdit(itemId, file) {
+  const name = file.replace(/\\/g, "/").split("/").pop();
+  const created = await run(() =>
+    api(`/api/library/items/${itemId}/edits/${encodeURIComponent(name)}/promote`, {
+      method: "POST",
+    })
+  );
+  if (!created) return;
+  markItemNew(created.id, created.folder ?? state.folder ?? "");
+  await reloadCurrentItem();
+  await loadItems();
+  setStatus("独立した画像アイテムにしました（元画像の隣に追加されています）");
+}
+
+// 編集画像をエクスプローラーで選択表示する（file は "edits/eNNN.png"）
+async function revealEdit(itemId, file) {
+  const name = file.replace(/\\/g, "/").split("/").pop();
+  await run(
+    () =>
+      api(`/api/library/items/${itemId}/edits/${encodeURIComponent(name)}/reveal`, {
+        method: "POST",
+      }),
+    "エクスプローラーで開きました"
+  );
+}
+
 // 動画ストリップのクリック（修飾キーで複数選択）
 async function handleVideoClick(file, index, e, autoplay = true) {
   // 単純なクリックのときだけ右パネルで再生を始める（複数選択・右クリックでは鳴らさない）
@@ -1278,7 +1625,7 @@ async function handleVideoClick(file, index, e, autoplay = true) {
     state.selectedVideoFile = file;
     state.videoAnchorIndex = index;
   }
-  renderVideoStrip();
+  renderStrip();
   await renderContext();
 }
 
@@ -1290,16 +1637,16 @@ async function bulkDeleteVideos(itemId, files) {
     state.selectedVideoFiles = new Set();
     state.selectedVideoFile = null;
     state.currentItem = res;
-    pruneNewVideos(res);
-    renderVideoStrip();
+    pruneNewSubAssets(res);
+    renderStrip();
     await renderContext();
     await loadItems();
     setStatus(`${res.deleted} 件の動画を削除しました`);
   });
 }
 
-async function deleteItemById(itemId, videoCount = 0) {
-  const warn = videoCount > 0 ? `\n紐づく動画 ${videoCount} 件も削除されます。` : "";
+async function deleteItemById(itemId, videoCount = 0, editCount = 0) {
+  const warn = subAssetWarning(videoCount, editCount);
   if (!confirm(`この画像を削除しますか？${warn}`)) return;
   await run(async () => {
     await api(`/api/library/items/${itemId}`, { method: "DELETE" });
@@ -1585,6 +1932,32 @@ async function importVideosToItem(files) {
     if (ok) done += 1;
   }
   setStatus(`${done} / ${vids.length} 件の動画を登録しました`);
+  state.stripTab = "videos";
+  await reloadCurrentItem();
+  await loadItems();
+}
+
+// 編集タブへの画像ファイルドロップ（選択画像の編集結果として登録）
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+
+async function importEditsToItem(files) {
+  if (!state.selectedId) return;
+  const imgs = [...files].filter((f) => IMAGE_EXT.test(f.name));
+  if (imgs.length === 0) {
+    setStatus("画像ファイル（png/jpg/webp）をドロップしてください", true);
+    return;
+  }
+  let done = 0;
+  for (const file of imgs) {
+    const form = new FormData();
+    form.append("file", file);
+    const ok = await run(() =>
+      api(`/api/library/items/${state.selectedId}/edits`, { method: "POST", body: form })
+    );
+    if (ok) done += 1;
+  }
+  setStatus(`${done} / ${imgs.length} 件の編集画像を登録しました`);
+  state.stripTab = "edits";
   await reloadCurrentItem();
   await loadItems();
 }
@@ -1603,7 +1976,10 @@ videoStrip.addEventListener("drop", async (e) => {
   videoStrip.classList.remove("is-drop-target");
   if (e.dataTransfer.files.length === 0) return;
   e.preventDefault();
-  await importVideosToItem(e.dataTransfer.files);
+  // 動画は動画タブへ、画像は編集タブへ振り分ける（タブの状態に関係なく判定する）
+  const files = [...e.dataTransfer.files];
+  if (files.some((f) => IMAGE_EXT.test(f.name))) await importEditsToItem(files);
+  else await importVideosToItem(files);
 });
 
 const grid = $("#grid");
@@ -1682,7 +2058,10 @@ document.addEventListener("keydown", (e) => {
   const tag = (document.activeElement?.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || document.activeElement?.isContentEditable) return;
   if ($("#view-library").hidden) return; // ライブラリタブでのみ
-  if (state.selectedVideoFiles.size > 0 && state.selectedId) {
+  if (state.selectedEditFiles.size > 0 && state.selectedId) {
+    e.preventDefault();
+    bulkDeleteEdits(state.selectedId, [...state.selectedEditFiles]);
+  } else if (state.selectedVideoFiles.size > 0 && state.selectedId) {
     e.preventDefault();
     bulkDeleteVideos(state.selectedId, [...state.selectedVideoFiles]);
   } else if (state.selectedIds.size > 0) {
@@ -1700,7 +2079,13 @@ document.addEventListener("keydown", (e) => {
   if (tag === "input" || tag === "textarea" || document.activeElement?.isContentEditable) return;
   if ($("#view-library").hidden) return; // ライブラリタブでのみ
   if (!$("#settings-overlay").hidden) return; // 設定を開いている間は無効
-  if (state.selectedVideoFiles.size > 0 && state.selectedId) {
+  if (state.selectedEditFiles.size > 0 && state.selectedId) {
+    e.preventDefault();
+    const files = [...state.selectedEditFiles];
+    const edits = state.currentItem?.edits || [];
+    const allFav = files.every((f) => edits.find((ed) => ed.file === f)?.favorite);
+    setEditsFavorite(state.selectedId, files, !allFav);
+  } else if (state.selectedVideoFiles.size > 0 && state.selectedId) {
     e.preventDefault();
     const files = [...state.selectedVideoFiles];
     const videos = state.currentItem?.videos || [];
@@ -1721,9 +2106,13 @@ document.addEventListener("keydown", (e) => {
 async function renderContext() {
   const el = $("#context");
   el.innerHTML = "";
-  // 動画を複数選択中はまとめて操作するパネル（画像より優先）
+  // 動画・編集画像を複数選択中はまとめて操作するパネル（画像より優先）
+  if (state.selectedEditFiles.size > 1 && state.selectedId) {
+    renderMultiSubAssetContext(el, "edits");
+    return;
+  }
   if (state.selectedVideoFiles.size > 1 && state.selectedId) {
-    renderMultiVideoContext(el);
+    renderMultiSubAssetContext(el, "videos");
     return;
   }
   // 画像を複数選択中
@@ -1735,8 +2124,17 @@ async function renderContext() {
     let item = state.currentItem;
     if (!item) item = state.currentItem = await run(() => api(`/api/library/items/${state.selectedId}`));
     if (item) {
-      if (state.videoPanel) {
+      if (state.editPanel) {
+        renderEditGenContext(el, item);
+      } else if (state.videoPanel) {
         renderVideoGenContext(el, item);
+      } else if (state.selectedEditFile) {
+        const edit = (item.edits || []).find((ed) => ed.file === state.selectedEditFile);
+        if (edit) renderEditPropsContext(el, item, edit);
+        else {
+          state.selectedEditFile = null;
+          renderItemContext(el, item);
+        }
       } else if (state.selectedVideoFile) {
         const video = (item.videos || []).find((v) => v.file === state.selectedVideoFile);
         if (video) renderVideoPropsContext(el, item, video);
@@ -1755,10 +2153,13 @@ async function renderContext() {
   renderFolderContext(el);
 }
 
-function renderMultiVideoContext(el) {
-  const files = [...state.selectedVideoFiles];
+// 動画・編集画像を複数選択したときの右パネル（kind: "videos" | "edits"）
+function renderMultiSubAssetContext(el, kind) {
+  const isEdit = kind === "edits";
+  const label = isEdit ? "編集画像" : "動画";
+  const files = [...(isEdit ? state.selectedEditFiles : state.selectedVideoFiles)];
   const h = document.createElement("h2");
-  h.textContent = `動画 ${files.length} 件を選択中`;
+  h.textContent = `${label} ${files.length} 件を選択中`;
   el.appendChild(h);
 
   const info = document.createElement("div");
@@ -1770,15 +2171,23 @@ function renderMultiVideoContext(el) {
 
   const delBtn = document.createElement("button");
   delBtn.className = "danger";
-  setIconLabel(delBtn, "trash", `選択した ${files.length} 件の動画を削除`);
-  delBtn.addEventListener("click", () => bulkDeleteVideos(state.selectedId, files));
+  setIconLabel(delBtn, "trash", `選択した ${files.length} 件の${label}を削除`);
+  delBtn.addEventListener("click", () =>
+    isEdit
+      ? bulkDeleteEdits(state.selectedId, files)
+      : bulkDeleteVideos(state.selectedId, files)
+  );
   el.appendChild(delBtn);
 
   const clearBtn = document.createElement("button");
   clearBtn.textContent = "選択を解除";
   clearBtn.addEventListener("click", () => {
-    state.selectedVideoFiles = new Set(state.selectedVideoFile ? [state.selectedVideoFile] : []);
-    renderVideoStrip();
+    if (isEdit) {
+      state.selectedEditFiles = new Set(state.selectedEditFile ? [state.selectedEditFile] : []);
+    } else {
+      state.selectedVideoFiles = new Set(state.selectedVideoFile ? [state.selectedVideoFile] : []);
+    }
+    renderStrip();
     renderContext();
   });
   el.appendChild(clearBtn);
@@ -2093,6 +2502,7 @@ async function saveGenSettings() {
     await apiJson("/api/settings", "PUT", {
       gen_image: state.genImage,
       gen_video: state.genVideo,
+      gen_edit: state.genEdit,
     });
   } catch {}
 }
@@ -2315,6 +2725,27 @@ function enqueueVideoJob(itemId, params, label) {
   setGenStatus("生成キューに追加しました");
 }
 
+function enqueueEdit(itemId, label) {
+  saveGenSettings();
+  enqueueEditJob(itemId, currentEditSettings(), label);
+}
+
+// 指定アイテム・指定パラメータで画像編集をキューに積む
+function enqueueEditJob(itemId, params, label) {
+  state.queue.push({
+    id: ++queueSeq,
+    type: "edit",
+    itemId,
+    params: { ...params },
+    status: "pending",
+    label: `編集: ${label || itemId}`,
+    message: "",
+  });
+  updateQueueUI();
+  processQueue();
+  setGenStatus("生成キューに追加しました");
+}
+
 async function processQueue() {
   if (queueRunning) return;
   queueRunning = true;
@@ -2327,6 +2758,7 @@ async function processQueue() {
       updateQueueUI();
       try {
         if (job.type === "image") await runImageJob(job);
+        else if (job.type === "edit") await runEditJob(job);
         else await runVideoJob(job);
         job.status = "done";
       } catch (e) {
@@ -2402,7 +2834,40 @@ async function runVideoJob(job) {
   await loadItems();
   if (state.selectedId === job.itemId && result) {
     state.currentItem = result;
-    renderVideoStrip();
+    renderStrip();
+  }
+  setStatus(status);
+}
+
+async function runEditJob(job) {
+  let err = null;
+  let result = null;
+  let status = "";
+  await streamGenerate("/api/generation/edit", { item_id: job.itemId, ...job.params }, (ev) => {
+    if (ev.type === "status") setStatus(`[編集] ${ev.content}`);
+    else if (ev.type === "error") err = ev.content;
+    else if (ev.type === "edit") {
+      result = ev.item;
+      status = ev.status || "画像を編集しました";
+    }
+  });
+  if (err) throw new Error(err);
+  job.message = status;
+  // 追加された編集画像（edits の末尾）に NEW を付ける
+  if (result?.edits?.length) {
+    markEditNew(job.itemId, result.edits[result.edits.length - 1].file, result.folder);
+  }
+  const usedSeed = result?.edit_settings?.seed;
+  if (typeof usedSeed === "number" && usedSeed >= 0) {
+    state.lastEditSeed = usedSeed;
+  } else if (typeof job.params.seed === "number" && job.params.seed >= 0) {
+    state.lastEditSeed = job.params.seed;
+  }
+  await loadTree();
+  await loadItems();
+  if (state.selectedId === job.itemId && result) {
+    state.currentItem = result;
+    renderStrip();
   }
   setStatus(status);
 }
@@ -2553,6 +3018,324 @@ function renderVideoGenContext(el, item) {
   });
   el.appendChild(backBtn);
   el.appendChild(genStatusLine());
+}
+
+// 画像編集パネル -------------------------------------------------------------
+
+// 「画像を編集...」パネルを開く（編集タブに切り替える）
+function openEditPanel() {
+  state.editPanel = true;
+  state.videoPanel = false;
+  state.selectedEditFile = null;
+  state.selectedEditFiles = new Set();
+  state.selectedVideoFile = null;
+  state.selectedVideoFiles = new Set();
+  state.stripTab = "edits";
+  updateHash();
+  renderStrip();
+}
+
+// 参照画像（image2 以降）のドロップ受け皿。グリッドのカードをドラッグして追加する
+function buildEditRefsBox(refs, onChange) {
+  const box = document.createElement("div");
+  box.className = "field edit-refs";
+  const label = document.createElement("label");
+  label.textContent = "追加の参照画像（グリッドからドラッグ）";
+  box.appendChild(label);
+
+  const drop = document.createElement("div");
+  drop.className = "edit-refs-drop";
+  const render = () => {
+    drop.innerHTML = "";
+    if (!refs.length) {
+      const hint = document.createElement("div");
+      hint.className = "palette-sub";
+      hint.textContent = "ここに画像をドラッグすると参照として渡します（ワークフロー次第で最大 2 枚）";
+      drop.appendChild(hint);
+      return;
+    }
+    refs.forEach((id, i) => {
+      const chip = document.createElement("div");
+      chip.className = "edit-ref-chip";
+      const img = document.createElement("img");
+      img.src = `/api/library/file/${id}/thumb.jpg`;
+      img.title = id;
+      const rm = document.createElement("button");
+      setIconLabel(rm, "x");
+      rm.title = "外す";
+      rm.addEventListener("click", () => {
+        refs.splice(i, 1);
+        onChange();
+        render();
+      });
+      chip.append(img, rm);
+      drop.appendChild(chip);
+    });
+  };
+  render();
+  drop.addEventListener("dragover", (e) => {
+    if ([...e.dataTransfer.types].includes("application/x-item-id")) {
+      e.preventDefault();
+      drop.classList.add("is-drop-target");
+    }
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("is-drop-target"));
+  drop.addEventListener("drop", (e) => {
+    drop.classList.remove("is-drop-target");
+    const id = e.dataTransfer.getData("application/x-item-id");
+    if (!id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!refs.includes(id)) refs.push(id);
+    onChange();
+    render();
+  });
+  box.appendChild(drop);
+  return box;
+}
+
+// 編集パネルの現在の設定を meta.json / API 用の形にまとめる
+function currentEditSettings() {
+  const g = state.genEdit;
+  return {
+    prompt: g.prompt,
+    workflow: g.workflow,
+    width: g.width,
+    height: g.height,
+    seed: g.seed,
+    refs: [...(g.refs || [])],
+  };
+}
+
+function renderEditGenContext(el, item) {
+  const h = document.createElement("h2");
+  h.textContent = `画像を編集: ${item.id}`;
+  el.appendChild(h);
+
+  const img = document.createElement("img");
+  img.className = "preview";
+  img.src = `/api/library/file/${item.id}/${item.thumb || "thumb.jpg"}`;
+  el.appendChild(img);
+
+  const g = state.genEdit;
+  // 保存済みの編集設定があれば復元（初回のみ）。サイズ未指定なら元画像のサイズを既定に。
+  if (g._loadedFor !== item.id) {
+    const es = item.edit_settings;
+    if (es) {
+      g.prompt = es.prompt ?? "";
+      g.workflow = es.workflow ?? g.workflow;
+      g.width = es.width ?? "";
+      g.height = es.height ?? "";
+      g.seed = es.seed ?? -1;
+      g.refs = Array.isArray(es.refs) ? [...es.refs] : [];
+      if (typeof es.seed === "number" && es.seed >= 0) state.lastEditSeed = es.seed;
+    } else {
+      g.refs = [];
+    }
+    const p = item.params || {};
+    if (!g.width && Number(p.width)) g.width = Number(p.width);
+    if (!g.height && Number(p.height)) g.height = Number(p.height);
+    g._loadedFor = item.id;
+  }
+  if (!g.workflow && state.options.edit_workflows.length > 0) {
+    g.workflow = state.options.edit_workflows[0];
+  }
+
+  if (state.options.edit_workflows.length === 0) {
+    const warn = document.createElement("div");
+    warn.className = "placeholder";
+    warn.textContent =
+      "編集ワークフローがありません。workflows/edit/ に ComfyUI の API 形式 JSON を置いてください。";
+    el.appendChild(warn);
+  }
+
+  el.appendChild(
+    labeled(
+      "編集プロンプト",
+      attachSnippetAutocomplete(autoGrowTextarea(g.prompt, (v) => (g.prompt = v)))
+    )
+  );
+  el.appendChild(
+    labeled(
+      "ワークフロー",
+      makeSelect(state.options.edit_workflows, g.workflow, (v) => (g.workflow = v))
+    )
+  );
+
+  el.appendChild(buildEditRefsBox(g.refs, () => {}));
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.append(
+    labeled("Width（空でWF値）", makeInput("number", g.width, (v) => (g.width = v))),
+    labeled("Height", makeInput("number", g.height, (v) => (g.height = v)))
+  );
+  el.appendChild(row);
+  el.appendChild(seedField("Seed", g, () => state.lastEditSeed));
+
+  const genBtn = document.createElement("button");
+  genBtn.className = "primary";
+  setIconLabel(genBtn, "pencil", "画像編集をキューに追加");
+  genBtn.addEventListener("click", () => enqueueEdit(item.id, g.prompt || item.id));
+  el.appendChild(genBtn);
+
+  const saveSettingsBtn = document.createElement("button");
+  setIconLabel(saveSettingsBtn, "save", "この設定を保存（生成せず）");
+  saveSettingsBtn.title = "編集プロンプト等を画像に保存します（次回この画像を開くと復元されます）";
+  saveSettingsBtn.addEventListener("click", async () => {
+    await run(async () => {
+      await apiJson(`/api/library/items/${item.id}`, "PATCH", {
+        edit_settings: currentEditSettings(),
+      });
+    }, "編集設定を保存しました");
+  });
+  el.appendChild(saveSettingsBtn);
+
+  const backBtn = document.createElement("button");
+  setIconLabel(backBtn, "arrow-left", "画像詳細に戻る");
+  backBtn.addEventListener("click", async () => {
+    state.editPanel = false;
+    updateHash();
+    await renderContext();
+  });
+  el.appendChild(backBtn);
+  el.appendChild(genStatusLine());
+}
+
+// 編集画像のプロパティ（ストリップで編集画像を選択したとき、右パネルに表示）
+function renderEditPropsContext(el, item, ed) {
+  const h = document.createElement("h2");
+  h.textContent = "編集画像のプロパティ";
+  el.appendChild(h);
+
+  const back = document.createElement("button");
+  setIconLabel(back, "arrow-left", "画像のプロパティに戻る");
+  back.addEventListener("click", async () => {
+    state.selectedEditFile = null;
+    state.selectedEditFiles = new Set();
+    renderStrip();
+    await renderContext();
+  });
+  el.appendChild(back);
+
+  const src = `/api/library/file/${item.id}/${ed.file}`;
+  const img = document.createElement("img");
+  img.className = "preview";
+  img.src = src;
+  img.title = "クリックで原寸表示";
+  img.style.cursor = "zoom-in";
+  img.addEventListener("click", () => showImagePopup(src));
+  el.appendChild(img);
+
+  const fileLabel = document.createElement("div");
+  fileLabel.className = "palette-sub preview-file";
+  fileLabel.textContent = `${ed.file}　${(ed.created_at || "").replace("T", " ").slice(0, 16)}`;
+  el.appendChild(fileLabel);
+
+  // 選択した時点で編集できる生成フォーム。この編集画像の設定を初期値にする
+  const es = ed.settings || {};
+  const d = {
+    prompt: ed.prompt || es.prompt || "",
+    workflow: es.workflow || ed.workflow || state.genEdit.workflow,
+    width: es.width ?? "",
+    height: es.height ?? "",
+    seed: typeof es.seed === "number" ? es.seed : -1,
+    refs: Array.isArray(es.refs) ? [...es.refs] : [],
+  };
+
+  el.appendChild(
+    editableField(
+      "編集プロンプト",
+      attachSnippetAutocomplete(autoGrowTextarea(d.prompt, (v) => (d.prompt = v)))
+    )
+  );
+  el.appendChild(
+    labeled(
+      "ワークフロー",
+      makeSelect(state.options.edit_workflows, d.workflow, (v) => (d.workflow = v))
+    )
+  );
+  if (!d.workflow && state.options.edit_workflows.length > 0) {
+    d.workflow = state.options.edit_workflows[0];
+  }
+  el.appendChild(buildEditRefsBox(d.refs, () => {}));
+
+  const sizeRow = document.createElement("div");
+  sizeRow.className = "row";
+  sizeRow.append(
+    labeled("Width（空でWF値）", makeInput("number", d.width, (v) => (d.width = v))),
+    labeled("Height", makeInput("number", d.height, (v) => (d.height = v)))
+  );
+  el.appendChild(sizeRow);
+  el.appendChild(seedField("Seed", d, () => state.lastEditSeed));
+
+  const buildSettings = () => ({
+    ...es,
+    prompt: d.prompt,
+    workflow: d.workflow,
+    width: d.width,
+    height: d.height,
+    seed: d.seed,
+    refs: [...d.refs],
+  });
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "row";
+
+  const saveBtn = document.createElement("button");
+  setIconLabel(saveBtn, "save", "保存");
+  saveBtn.title = "編集した内容をこの編集画像に保存します（生成はしません）";
+  saveBtn.addEventListener("click", async () => {
+    const name = ed.file.split("/").pop();
+    await run(async () => {
+      await apiJson(`/api/library/items/${item.id}/edits/${encodeURIComponent(name)}`, "PATCH", {
+        prompt: d.prompt,
+        settings: buildSettings(),
+      });
+      await reloadCurrentItem();
+    }, "保存しました");
+  });
+  btnRow.appendChild(saveBtn);
+
+  const genBtn = document.createElement("button");
+  genBtn.className = "primary";
+  setIconLabel(genBtn, "pencil", "新規生成でキューに追加");
+  genBtn.title = "この内容でもう一度編集します（この編集画像は変更されません）";
+  genBtn.addEventListener("click", () => {
+    enqueueEditJob(item.id, buildSettings(), (d.prompt || item.id).slice(0, 24));
+  });
+  btnRow.appendChild(genBtn);
+
+  el.appendChild(btnRow);
+  el.appendChild(genStatusLine());
+
+  // 独立アイテムへの昇格（動画生成・検索・シーケンスに使えるようになる）
+  const promoteBtn = document.createElement("button");
+  promoteBtn.className = "primary";
+  setIconLabel(promoteBtn, "image", "独立した画像アイテムにする");
+  promoteBtn.title =
+    "この編集画像をライブラリの画像として複製します。\n" +
+    "動画生成・検索・シーケンスに使えるようになります（元画像の隣に並びます）";
+  promoteBtn.addEventListener("click", () => promoteEdit(item.id, ed.file));
+  el.appendChild(promoteBtn);
+
+  if (ed.promoted_to) {
+    const note = document.createElement("div");
+    note.className = "palette-sub";
+    note.textContent = `独立アイテム ${ed.promoted_to} として昇格済みです`;
+    el.appendChild(note);
+  }
+
+  const revealBtn = document.createElement("button");
+  setIconLabel(revealBtn, "folder-open", "ファイルの場所を開く");
+  revealBtn.addEventListener("click", () => revealEdit(item.id, ed.file));
+  el.appendChild(revealBtn);
+
+  const del = document.createElement("button");
+  del.className = "danger";
+  setIconLabel(del, "trash", "この編集画像を削除");
+  del.addEventListener("click", () => bulkDeleteEdits(item.id, [ed.file]));
+  el.appendChild(del);
 }
 
 // 「🤖 LLM で動画プロンプトを生成」ボックス（動画生成パネル / 動画プロパティ共用）。
@@ -2912,17 +3695,35 @@ function renderItemContext(el, item) {
   el.appendChild(btnRow);
   el.appendChild(genStatusLine());
 
-  // 動画生成（動画一覧は下部ストリップに表示）
+  // 動画生成・画像編集（生成物は下部ストリップのタブに表示）
   const genVideoBtn = document.createElement("button");
   genVideoBtn.className = "primary";
   const vcount = (item.videos || []).length;
   setIconLabel(genVideoBtn, "film", vcount > 0 ? `動画を生成...（${vcount}件は下に表示）` : "動画を生成...");
   genVideoBtn.addEventListener("click", async () => {
     state.videoPanel = true;
+    state.editPanel = false;
+    state.stripTab = "videos";
     updateHash();
+    renderStrip();
     await renderContext();
   });
   el.appendChild(genVideoBtn);
+
+  const genEditBtn = document.createElement("button");
+  genEditBtn.className = "primary";
+  const ecount = (item.edits || []).length;
+  setIconLabel(
+    genEditBtn,
+    "pencil",
+    ecount > 0 ? `画像を編集...（${ecount}件は下に表示）` : "画像を編集..."
+  );
+  genEditBtn.title = "スタイル変換などの編集結果をこの画像に紐づけて保存します";
+  genEditBtn.addEventListener("click", async () => {
+    openEditPanel();
+    await renderContext();
+  });
+  el.appendChild(genEditBtn);
 
   // ファイル操作
   const revealBtn = document.createElement("button");
@@ -2934,7 +3735,7 @@ function renderItemContext(el, item) {
   delBtn.className = "danger";
   setIconLabel(delBtn, "trash", "画像を削除");
   delBtn.addEventListener("click", () =>
-    deleteItemById(item.id, (item.videos || []).length)
+    deleteItemById(item.id, (item.videos || []).length, (item.edits || []).length)
   );
   el.appendChild(delBtn);
 }
@@ -2949,7 +3750,7 @@ function renderVideoPropsContext(el, item, v) {
   setIconLabel(back, "arrow-left", "画像のプロパティに戻る");
   back.addEventListener("click", async () => {
     state.selectedVideoFile = null;
-    renderVideoStrip();
+    renderStrip();
     await renderContext();
   });
   el.appendChild(back);
@@ -3103,7 +3904,7 @@ function renderVideoPropsContext(el, item, v) {
 async function reloadCurrentItem() {
   if (!state.selectedId) return;
   state.currentItem = await run(() => api(`/api/library/items/${state.selectedId}`));
-  renderVideoStrip();
+  renderStrip();
   await renderContext();
 }
 
@@ -3472,7 +4273,7 @@ async function refresh() {
     state.currentItem = null;
     state.selectedVideoFile = null;
   }
-  renderVideoStrip();
+  renderStrip();
   await renderContext();
 }
 
@@ -3497,7 +4298,7 @@ window.addEventListener("open-library-item", async (e) => {
     if (markVideoSeen(itemId, file)) updateGridSelection();
     state.selectedVideoFile = file;
     state.selectedVideoFiles = new Set([file]);
-    renderVideoStrip();
+    renderStrip();
     await renderContext();
   }
   document.querySelector(`.card[data-id="${itemId}"]`)?.scrollIntoView({ block: "nearest" });
@@ -3518,16 +4319,21 @@ run(async () => {
   if (options) state.options = options;
   if (saved.gen_image) Object.assign(state.genImage, saved.gen_image);
   if (saved.gen_video) Object.assign(state.genVideo, saved.gen_video);
+  if (saved.gen_edit) Object.assign(state.genEdit, saved.gen_edit);
   initPaneResizers(saved.pane_widths);
   startStatusPolling();
   startSystemPolling();
   const p = new URLSearchParams(location.hash.slice(1));
   const itemId = p.get("item");
   const videoPanel = p.get("video") === "1";
+  const editPanel = p.get("edit") === "1";
   await selectFolder(p.get("folder") || "");
   if (itemId) {
     await selectItem(itemId);
-    if (videoPanel) {
+    if (editPanel) {
+      openEditPanel();
+      await renderContext();
+    } else if (videoPanel) {
       state.videoPanel = true;
       updateHash();
       await renderContext();

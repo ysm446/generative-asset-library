@@ -116,6 +116,56 @@ def main() -> None:
     assert (item_dir / "videos" / "v001.mp4").read_bytes() == b"fake-video-bytes"
     assert index_db.get_item_row(meta["id"])["video_count"] == 1
 
+    # --- 画像編集（ComfyUI モック） ---
+    ref = service.generate_image_to_item(
+        {"folder": "gen", "positive": "reference", "seed": -1, "backend": "WebUI Forge"},
+        statuses.append,
+    )
+
+    captured: dict = {}
+
+    def fake_edit(**kw):
+        captured.update(kw)
+        return Image.new("RGB", (96, 64), (200, 200, 200))
+
+    comfy_client.generate_image = fake_edit
+
+    meta4 = service.generate_edit_for_item(
+        {
+            "item_id": meta["id"],
+            "prompt": "pencil sketch style",
+            "workflow": "qwen_edit_test",
+            "seed": 7,
+            "width": 96,
+            "height": 64,
+            "refs": [ref["id"], "no-such-item"],
+        },
+        statuses.append,
+    )
+    # 元画像 + 実在する参照画像だけが渡る（見つからない参照は無視して続行）
+    assert len(captured["input_images"]) == 2
+    assert captured["positive"] == "pencil sketch style"
+    assert len(meta4["edits"]) == 1
+    e = meta4["edits"][0]
+    assert e["file"] == "edits/e001.png"
+    assert e["prompt"] == "pencil sketch style"
+    assert e["workflow"] == "qwen_edit_test"
+    assert (item_dir / "edits" / "e001.png").is_file()
+    assert (item_dir / "edits" / "e001.thumb.jpg").is_file()
+    assert index_db.get_item_row(meta["id"])["edit_count"] == 1
+    assert meta4["edit_settings"]["seed"] == 7
+
+    # 編集画像を独立アイテムに昇格すると、通常の画像として動画も作れる
+    promoted = items.promote_edit(meta["id"], "e001.png")
+    assert promoted["source"]["item_id"] == meta["id"]
+    assert promoted["sort_order"] > meta["sort_order"]
+    comfy_client.generate_image = fake_video
+    pmeta = service.generate_video_for_item(
+        {"item_id": promoted["id"], "prompt": "waves moving", "workflow": "wan_test", "seed": -1},
+        statuses.append,
+    )
+    assert len(pmeta["videos"]) == 1
+
     # --- アプリ全体が import できる ---
     import server.main  # noqa: F401
 
@@ -126,10 +176,12 @@ def main() -> None:
     assert "WebUI Forge" in opts["backends"]
     assert len(opts["image_workflows"]) > 0, "workflows/image が検出されていません"
     assert len(opts["video_workflows"]) > 0, "workflows/video が検出されていません"
+    assert len(opts["edit_workflows"]) > 0, "workflows/edit が検出されていません"
 
     print("ALL OK")
     print("image workflows:", opts["image_workflows"])
     print("video workflows:", len(opts["video_workflows"]), "件")
+    print("edit workflows:", opts["edit_workflows"])
 
 
 if __name__ == "__main__":
