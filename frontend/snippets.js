@@ -164,7 +164,17 @@ async function loadRoot() {
   } catch {}
 }
 
+// ファイル一覧の count を合計して総スニペット数を表示する
+function renderTotal() {
+  const files = snipState.files.length;
+  const total = snipState.files.reduce((sum, f) => sum + (f.count || 0), 0);
+  const el = $("#snip-total");
+  el.textContent = `${files} ファイル / 全 ${total} 項目`;
+  el.title = `スニペットファイル ${files} 件、スニペット合計 ${total} 件`;
+}
+
 function renderFiles() {
+  renderTotal();
   const el = $("#snip-files");
   el.innerHTML = "";
   if (snipState.files.length === 0) {

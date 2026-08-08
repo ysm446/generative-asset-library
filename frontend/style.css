@@ -1837,6 +1837,16 @@ textarea.auto-grow {
 
 .pane-snip-entries { background: var(--bg-pane); }
 
+.snip-total {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 .tree-node.snip-entry { gap: 8px; }
 
 .snip-entry-sub {
