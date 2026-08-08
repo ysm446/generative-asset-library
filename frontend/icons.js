@@ -20,6 +20,10 @@ const ICONS = {
     '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.9-3.9a2 2 0 0 0-2.8 0L6 19.5"/>',
   sparkles:
     '<path d="M12 3l1.9 5.1a2 2 0 0 0 1.2 1.2L20.2 11l-5.1 1.9a2 2 0 0 0-1.2 1.2L12 19.2l-1.9-5.1a2 2 0 0 0-1.2-1.2L3.8 11l5.1-1.9a2 2 0 0 0 1.2-1.2L12 3z"/><path d="M19 3v4M21 5h-4"/>',
+  // 画像編集（スタイル変換）用。生成の sparkles とは別に、
+  // くびれた四芒星を大小 2 つ重ねた「光」のかたちにしている
+  magic:
+    '<path d="M9.5 3Q10.2 9.3 16 10.5 10.2 11.7 9.5 18 8.8 11.7 3 10.5 8.8 9.3 9.5 3z"/><path d="M18 14Q18.3 16.8 21 17.5 18.3 18.2 18 21 17.7 18.2 15 17.5 17.7 16.8 18 14z"/>',
   dice:
     '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1" fill="currentColor" stroke="none"/>',
   restore:

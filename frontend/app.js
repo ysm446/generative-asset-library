@@ -850,7 +850,7 @@ function remapNewFolders(oldRel, newRel) {
 function makeNewBadge(kind = "") {
   const nb = document.createElement("span");
   nb.className = "new-badge" + (kind ? " video" : "");
-  if (kind) setIconLabel(nb, kind === "edit" ? "pencil" : "film", "NEW");
+  if (kind) setIconLabel(nb, kind === "edit" ? "magic" : "film", "NEW");
   else nb.textContent = "NEW";
   return nb;
 }
@@ -887,7 +887,7 @@ function makeCountBadge(item, kind) {
   if (!(count > 0)) return null;
   const badge = document.createElement("span");
   badge.className = `badge badge-${kind}`;
-  setIconLabel(badge, video ? "film" : "pencil", String(count));
+  setIconLabel(badge, video ? "film" : "magic", String(count));
   const label = video ? "動画" : "編集画像";
   badge.title = `${label} ${count} 件`;
   const fav = (video ? item.fav_video_count : item.fav_edit_count) || 0;
@@ -1156,7 +1156,7 @@ function renderGrid() {
             },
           },
           {
-            icon: "pencil",
+            icon: "magic",
             label: "画像を編集...",
             action: async () => {
               await selectItem(item.id);
@@ -1406,7 +1406,7 @@ function renderStripTabs(item) {
   };
   for (const [key, icon, label] of [
     ["videos", "film", "動画"],
-    ["edits", "pencil", "編集"],
+    ["edits", "magic", "編集"],
   ]) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1534,7 +1534,7 @@ function renderEditCards(list, item) {
   if (edits.length === 0) {
     const hint = document.createElement("div");
     hint.className = "vstrip-empty";
-    setIconLabel(hint, "pencil", "スタイル変換などの編集結果がここに並びます");
+    setIconLabel(hint, "magic", "スタイル変換などの編集結果がここに並びます");
     list.appendChild(hint);
   }
   edits.forEach((ed, index) => {
@@ -3305,7 +3305,7 @@ function renderEditGenContext(el, item) {
 
   const genBtn = document.createElement("button");
   genBtn.className = "primary";
-  setIconLabel(genBtn, "pencil", "画像編集をキューに追加");
+  setIconLabel(genBtn, "magic", "画像編集をキューに追加");
   genBtn.addEventListener("click", () => enqueueEdit(item.id, g.prompt || item.id));
   el.appendChild(genBtn);
 
@@ -3425,7 +3425,7 @@ function renderEditPropsContext(el, item, ed) {
 
   const genBtn = document.createElement("button");
   genBtn.className = "primary";
-  setIconLabel(genBtn, "pencil", "新規生成でキューに追加");
+  setIconLabel(genBtn, "magic", "新規生成でキューに追加");
   genBtn.title = "この内容でもう一度編集します（この編集画像は変更されません）";
   genBtn.addEventListener("click", () => {
     enqueueEditJob(item.id, buildSettings(), (d.prompt || item.id).slice(0, 24));
@@ -3841,7 +3841,7 @@ function renderItemContext(el, item) {
   const ecount = (item.edits || []).length;
   setIconLabel(
     genEditBtn,
-    "pencil",
+    "magic",
     ecount > 0 ? `画像を編集...（${ecount}件は下に表示）` : "画像を編集..."
   );
   genEditBtn.title = "スタイル変換などの編集結果をこの画像に紐づけて保存します";
