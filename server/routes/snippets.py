@@ -136,6 +136,8 @@ class OrganizePlan(BaseModel):
     instruction: str = ""
     max_categories: int = snippet_organize.MAX_CATEGORIES
     batch_size: int = snippet_organize.BATCH_SIZE
+    include: list[str] | None = None  # 対象ファイル（省略時は全ファイル）
+    targets_within_selection: bool = True  # 移動先も選択したファイルに限る
 
 
 @router.post("/organize/plan")
@@ -162,6 +164,8 @@ async def organize_plan(body: OrganizePlan):
                 instruction=body.instruction,
                 max_categories=max(2, min(body.max_categories, 100)),
                 batch_size=max(5, min(body.batch_size, 100)),
+                include=body.include,
+                targets_within_selection=body.targets_within_selection,
             )
             send({"type": "plan", "plan": plan})
         except Exception as e:

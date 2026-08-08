@@ -1,7 +1,7 @@
 # スニペット仕様
 
 作成日時: 2026-08-08 19:10
-更新日時: 2026-08-08 20:05
+更新日時: 2026-08-08 21:00
 
 プロンプト断片（スニペット）の保存形式・照合規則・API・自動整理をまとめた仕様メモ。
 実装は `server/library/snippets.py` / `server/library/snippet_organize.py` /
@@ -100,6 +100,22 @@ UI 用の `GET /api/snippets/entries` では空でも返る。
 `server/library/snippet_organize.py`。**LLM にファイルを書かせない**のが前提で、
 案（JSON）を作る処理と、それを適用する処理を分けている。
 
+### 対象範囲
+
+`include`（対象ファイルの配列、省略時は全ファイル）と `targets_within_selection`
+（既定 true）で範囲を絞れる。「人物系は触らず、物と背景だけを分け直す」のような使い方を想定している。
+
+- **出どころ**：`include` に選んだファイルの項目だけが振り分けの対象になる。
+  選ばれなかったファイルの項目は 1 件も動かない。
+- **移動先**：`targets_within_selection` が真なら、移動先は選択したファイルと
+  新規に作るファイルだけ。設計されたカテゴリ名がたまたま選択外の既存ファイルと一致した場合は、
+  そのカテゴリを移動先から外して警告を出す（対象外のファイルには書き込まない）。
+- 偽にすると、選択外の既存ファイルもカテゴリ一覧の末尾に加わり移動先として選べる
+  （そのファイルの中身はバラさない）。「雑多なファイルの中身を既存の正しいカテゴリへ配り直す」用途向け。
+
+対象を絞ると、フェーズ 1 でモデルに見せる情報が減るぶんカテゴリ設計が的を絞ったものになり、
+バッチ数も減って速くなる。
+
 ### フェーズ 1: カテゴリ設計
 
 現在のファイル名・件数と、各ファイルから等間隔に抜いた最大 20 件のサンプル（`prefix` と
@@ -132,9 +148,12 @@ UI 用の `GET /api/snippets/entries` では空でも返る。
   "created": ["sd_animals.code-snippets"],      // 新しくできるファイル
   "emptied": ["mixed.code-snippets"],           // 空になる見込みのファイル
   "touched": ["mixed.code-snippets", "sd_animals.code-snippets"],
-  "total": 5, "unassigned": 0, "failed_batches": 0
+  "total": 5, "unassigned": 0, "failed_batches": 0,
+  "selected_files": ["mixed.code-snippets"]      // 対象にしたファイル
 }
 ```
+
+`emptied` は「項目が出ていって 0 件になったファイル」だけで、元から空のファイルは含まない。
 
 移動先が現在のファイルと同じ項目は `moves` に入らない。UI ではこの案を移動先ごとに
 グループ表示し、チェックを外した項目を除いて適用できる。
@@ -161,5 +180,9 @@ UI 用の `GET /api/snippets/entries` では空でも返る。
 
 ## 6. 検証
 
-`python tests/test_snippet_organize.py`（`chat_json` をフェイクに差し替え、一時フォルダで
-案の生成 → 適用 → バックアップ → 不正パスの正規化までを確認する）。
+`python tests/test_snippet_organize.py`（`chat_json` をフェイクに差し替え、一時フォルダで確認する）。
+
+- `main()`: 案の生成 → 適用 → バックアップ → 不正パスの正規化。
+- `test_scope()`: 対象ファイルの絞り込み、移動先スコープの両モード、
+  対象外ファイルが手つかず（コメントも残る）であること、元から空のファイルを
+  `emptied` に数えないこと。

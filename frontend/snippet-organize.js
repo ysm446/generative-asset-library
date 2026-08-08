@@ -50,6 +50,42 @@ export async function openOrganizeDialog({ onApplied } = {}) {
   const form = document.createElement("div");
   form.className = "organize-form";
 
+  // 対象ファイル（既定は全選択）
+  const filesWrap = document.createElement("div");
+  filesWrap.className = "field";
+  const filesHead = document.createElement("div");
+  filesHead.className = "organize-files-head";
+  const filesLabel = document.createElement("label");
+  filesLabel.textContent = "対象にするファイル";
+  const selAll = document.createElement("button");
+  selAll.type = "button";
+  selAll.className = "link-button";
+  selAll.textContent = "全選択";
+  const selNone = document.createElement("button");
+  selNone.type = "button";
+  selNone.className = "link-button";
+  selNone.textContent = "全解除";
+  filesHead.append(filesLabel, selAll, selNone);
+  const filesList = document.createElement("div");
+  filesList.className = "organize-files";
+  const filesHint = document.createElement("div");
+  filesHint.className = "dialog-hint";
+  filesWrap.append(filesHead, filesList, filesHint);
+
+  const scopeWrap = document.createElement("div");
+  scopeWrap.className = "field";
+  const scopeLabel = document.createElement("label");
+  scopeLabel.className = "dialog-check";
+  const scopeCheck = document.createElement("input");
+  scopeCheck.type = "checkbox";
+  scopeCheck.checked = true;
+  scopeLabel.append(scopeCheck, document.createTextNode("移動先も、選択したファイル（と新規）に限る"));
+  const scopeHint = document.createElement("div");
+  scopeHint.className = "dialog-hint";
+  scopeHint.textContent =
+    "外すと、選択していない既存ファイルも移動先の候補になります（そのファイルの中身はバラしません）。";
+  scopeWrap.append(scopeLabel, scopeHint);
+
   const modelWrap = document.createElement("div");
   modelWrap.className = "field";
   const modelLabel = document.createElement("label");
@@ -85,7 +121,7 @@ export async function openOrganizeDialog({ onApplied } = {}) {
   hint.textContent =
     "案を作るだけではファイルは変更されません。適用時は data/snippet_backups/ に自動でバックアップを取ります。";
 
-  form.append(modelWrap, instWrap, catWrap, hint);
+  form.append(filesWrap, scopeWrap, modelWrap, instWrap, catWrap, hint);
   box.appendChild(form);
 
   // --- 進捗 ---
@@ -133,6 +169,55 @@ export async function openOrganizeDialog({ onApplied } = {}) {
     if (e.target === overlay && !runBtn.disabled) close();
   });
 
+  // 対象ファイル一覧
+  const fileChecks = new Map(); // path -> checkbox
+  const fileCounts = new Map(); // path -> 件数
+  let modelsOk = true;
+  const selectedPaths = () => [...fileChecks].filter(([, cb]) => cb.checked).map(([p]) => p);
+
+  const updateFilesHint = () => {
+    let files = 0;
+    let items = 0;
+    for (const [path, cb] of fileChecks) {
+      if (!cb.checked) continue;
+      files++;
+      items += fileCounts.get(path) || 0;
+    }
+    filesHint.textContent = `対象: ${files} ファイル / ${items} 項目`;
+    runBtn.disabled = files === 0 || !modelsOk;
+  };
+
+  try {
+    const res = await (await fetch("/api/snippets/files")).json();
+    for (const f of res.files || []) {
+      fileCounts.set(f.path, f.count);
+      const row = document.createElement("label");
+      row.className = "organize-file";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      const name = document.createElement("span");
+      name.className = "organize-file-name";
+      name.textContent = shortName(f.path);
+      const count = document.createElement("span");
+      count.className = "organize-count";
+      count.textContent = `${f.count} 件`;
+      row.append(cb, name, count);
+      cb.addEventListener("change", updateFilesHint);
+      filesList.appendChild(row);
+      fileChecks.set(f.path, cb);
+    }
+  } catch {}
+  selAll.addEventListener("click", () => {
+    for (const cb of fileChecks.values()) cb.checked = true;
+    updateFilesHint();
+  });
+  selNone.addEventListener("click", () => {
+    for (const cb of fileChecks.values()) cb.checked = false;
+    updateFilesHint();
+  });
+  updateFilesHint();
+
   // モデル一覧
   try {
     const res = await (await fetch("/api/llm/models")).json();
@@ -147,9 +232,10 @@ export async function openOrganizeDialog({ onApplied } = {}) {
       const o = document.createElement("option");
       o.textContent = "（models/ に GGUF がありません）";
       modelSel.appendChild(o);
-      runBtn.disabled = true;
+      modelsOk = false;
     }
   } catch {}
+  updateFilesHint();
 
   // --- 進捗表示（経過時間つき）---
   // 1 バッチの推論に時間がかかり無音になりやすいため、イベントが来ない間も
@@ -219,8 +305,9 @@ export async function openOrganizeDialog({ onApplied } = {}) {
     const summary = document.createElement("div");
     summary.className = "organize-summary";
     const moved = plan.moves.length;
+    const scope = plan.selected_files?.length ?? 0;
     summary.textContent =
-      `全 ${plan.total} 件のうち ${moved} 件を移動 ／ ` +
+      `対象 ${scope} ファイル・${plan.total} 件のうち ${moved} 件を移動 ／ ` +
       `新規 ${plan.created.length} ファイル ／ 空になる ${plan.emptied.length} ファイル` +
       (plan.unassigned ? ` ／ 未分類 ${plan.unassigned} 件（現在の場所に残ります）` : "");
     result.appendChild(summary);
@@ -340,6 +427,8 @@ export async function openOrganizeDialog({ onApplied } = {}) {
           model: modelSel.value,
           instruction: inst.value,
           max_categories: Number(catInput.value) || 24,
+          include: selectedPaths(),
+          targets_within_selection: scopeCheck.checked,
         },
         (ev) => {
           if (ev.type === "progress") {

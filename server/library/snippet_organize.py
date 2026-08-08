@@ -38,10 +38,12 @@ class OrganizeError(Exception):
 # --- 収集 -------------------------------------------------------------------
 
 
-def collect_entries() -> list[dict[str, str]]:
-    """全ファイルのスニペットを (source, name) 付きで集める。body は捨てない。"""
+def collect_entries(include: set[str] | None = None) -> list[dict[str, str]]:
+    """スニペットを (source, name) 付きで集める。include を渡すとそのファイルだけ。"""
     result: list[dict[str, str]] = []
     for f in snippets.list_files():
+        if include is not None and f["path"] not in include:
+            continue
         try:
             entries = snippets.parse_entries(f["path"])
         except snippets.SnippetError:
@@ -131,7 +133,13 @@ def design_categories(
     entries: list[dict[str, str]],
     instruction: str = "",
     max_categories: int = MAX_CATEGORIES,
+    extra_categories: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
+    """整理後のカテゴリ一覧を設計する。
+
+    ``extra_categories`` は「対象に選ばれていないが移動先には使える既存ファイル」で、
+    設計結果のうしろに固定で足す（LLM に作らせるカテゴリ数には数えない）。
+    """
     system = _CATEGORY_SYSTEM.format(max_categories=max_categories)
     user = _overview_text(entries)
     if instruction.strip():
@@ -161,6 +169,11 @@ def design_categories(
             break
     if not categories:
         raise OrganizeError("有効なカテゴリ名が 1 つも得られませんでした")
+
+    for c in extra_categories or []:
+        if c["file"] not in seen:
+            seen.add(c["file"])
+            categories.append(c)
     return categories
 
 
@@ -249,17 +262,51 @@ def build_plan(
     instruction: str = "",
     max_categories: int = MAX_CATEGORIES,
     batch_size: int = BATCH_SIZE,
+    include: list[str] | None = None,
+    targets_within_selection: bool = True,
 ) -> dict[str, Any]:
-    """整理案（moves / categories）を作って返す。ファイルは一切書き換えない。"""
-    entries = collect_entries()
-    if not entries:
-        raise OrganizeError("スニペットが 1 件もありません")
+    """整理案（moves / categories）を作って返す。ファイルは一切書き換えない。
 
-    send({"type": "status", "content": f"{len(entries)} 件のスニペットからカテゴリを設計中..."})
-    categories = design_categories(entries, instruction, max_categories)
-    send({"type": "categories", "categories": categories})
-
+    ``include`` を渡すと、そのファイルの項目だけを振り分け対象にする。
+    ``targets_within_selection`` が真なら移動先も選択したファイル（と新規）に限る。
+    偽なら、選択外の既存ファイルも移動先の候補に加える（中身はバラさない）。
+    """
     existing = {f["path"] for f in snippets.list_files()}
+    selected = {p for p in (include or []) if p in existing} or existing
+    unselected = sorted(existing - selected)
+
+    entries = collect_entries(selected)
+    if not entries:
+        raise OrganizeError("対象のスニペットが 1 件もありません")
+
+    send(
+        {
+            "type": "status",
+            "content": f"{len(selected)} ファイル・{len(entries)} 件のスニペットからカテゴリを設計中...",
+        }
+    )
+    extra = (
+        None
+        if targets_within_selection
+        else [{"file": p, "description": "（対象外の既存ファイル。移動先としてのみ使う）"} for p in unselected]
+    )
+    categories = design_categories(entries, instruction, max_categories, extra)
+    if targets_within_selection:
+        # 設計されたカテゴリ名が、たまたま選択外の既存ファイルと一致することがある。
+        # その場合は移動先から外す（対象外のファイルには一切書き込まない）。
+        blocked = set(unselected)
+        dropped = [c["file"] for c in categories if c["file"] in blocked]
+        categories = [c for c in categories if c["file"] not in blocked]
+        if not categories:
+            raise OrganizeError("移動先にできるカテゴリがありません")
+        if dropped:
+            send(
+                {
+                    "type": "warning",
+                    "content": f"対象外のファイルと同名のカテゴリを除外しました: {', '.join(dropped)}",
+                }
+            )
+    send({"type": "categories", "categories": categories})
     assigned: dict[int, int] = {}
     total = len(entries)
     failed_batches = 0
@@ -305,9 +352,11 @@ def build_plan(
         counts[m["from"]] = counts.get(m["from"], 0) - 1
         counts[m["to"]] = counts.get(m["to"], 0) + 1
 
-    emptied = sorted(p for p, n in counts.items() if n <= 0 and p in existing)
+    # 空になるのは「項目が出ていったファイル」だけ（元から空のファイルは対象外）
+    sources = {m["from"] for m in moves}
+    emptied = sorted(p for p in sources if counts.get(p, 0) <= 0)
     created = sorted(p for p in counts if p not in existing and counts[p] > 0)
-    touched = sorted({m["from"] for m in moves} | {m["to"] for m in moves})
+    touched = sorted(sources | {m["to"] for m in moves})
 
     return {
         "categories": categories,
@@ -319,6 +368,7 @@ def build_plan(
         "total": total,
         "unassigned": unassigned,
         "failed_batches": failed_batches,
+        "selected_files": sorted(selected),
     }
 
 
