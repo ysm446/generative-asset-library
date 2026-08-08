@@ -28,7 +28,11 @@ def _retry_fs(fn, attempts: int = 4, wait: float = 0.3):
             time.sleep(wait)
 
 
-def _folder_node(path: Path, root: Path) -> dict[str, Any]:
+def _thumb_key(t: dict[str, Any]) -> tuple[float, str]:
+    return (float(t.get("sort_order") or 0), str(t.get("created_at") or ""))
+
+
+def _folder_node(path: Path, root: Path, thumbs: dict[str, dict[str, Any]]) -> dict[str, Any]:
     rel = path.relative_to(root).as_posix()
     rel = "" if rel == "." else rel
     children = []
@@ -39,18 +43,29 @@ def _folder_node(path: Path, root: Path) -> dict[str, Any]:
         if paths.is_item_dir(child):
             item_count += 1
         else:
-            children.append(_folder_node(child, root))
+            children.append(_folder_node(child, root, thumbs))
+
+    # 代表サムネイルと総件数は配下フォルダの分も合わせる（一覧のフォルダカード用）
+    total_count = item_count + sum(c["total_count"] for c in children)
+    best = thumbs.get(rel)
+    for c in children:
+        cand = c.get("thumb")
+        if cand and (best is None or _thumb_key(cand) > _thumb_key(best)):
+            best = cand
+
     return {
         "name": path.name if rel else "",
         "rel": rel,
         "item_count": item_count,
+        "total_count": total_count,
+        "thumb": best,
         "children": children,
     }
 
 
 def tree() -> dict[str, Any]:
     root = paths.get_library_root()
-    return _folder_node(root, root)
+    return _folder_node(root, root, index_db.folder_thumbs())
 
 
 def create_folder(parent_rel: str, name: str) -> str:

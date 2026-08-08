@@ -283,6 +283,34 @@ def list_all_videos() -> list[dict[str, Any]]:
         conn.close()
 
 
+def folder_thumbs() -> dict[str, dict[str, Any]]:
+    """フォルダ（直下）ごとの代表アイテムを返す（一覧のフォルダカードのサムネイル用）。
+
+    並び順はグリッドと同じ「新しいものほど先頭」。配下フォルダまで含めた代表の選定は
+    呼び出し側（folders.tree）が、この結果を木構造でたどって行う。
+    """
+    conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT folder, id, thumb, sort_order, created_at FROM items"
+            " ORDER BY sort_order DESC, created_at DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    best: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        best.setdefault(
+            r["folder"],
+            {
+                "item_id": r["id"],
+                "thumb": r["thumb"] or "thumb.jpg",
+                "sort_order": r["sort_order"] or 0,
+                "created_at": r["created_at"] or "",
+            },
+        )
+    return best
+
+
 def move_folder_prefix(old: str, new: str) -> None:
     """フォルダのリネーム / 移動に合わせて items.folder を付け替える。"""
     conn = connect()

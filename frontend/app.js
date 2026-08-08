@@ -912,6 +912,77 @@ function applyCountBadges(card, item) {
   }
 }
 
+/** rel からツリーのノードを引く（"" はルート） */
+function findTreeNode(rel) {
+  let node = state.tree;
+  if (!node) return null;
+  if (!rel) return node;
+  let acc = "";
+  for (const part of rel.split("/")) {
+    acc = acc ? `${acc}/${part}` : part;
+    node = (node.children || []).find((c) => c.rel === acc);
+    if (!node) return null;
+  }
+  return node;
+}
+
+/**
+ * グリッドの先頭に並べるフォルダカードを作る。
+ * up=true は「上へ」（親フォルダ）。それ以外は選択中フォルダの子フォルダ。
+ */
+function makeFolderCard(node, up = false) {
+  const card = document.createElement("div");
+  card.className = "card card-folder" + (up ? " is-up" : "");
+  card.dataset.rel = node.rel;
+
+  if (!up && node.thumb) {
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.draggable = false;
+    img.src = `/api/library/file/${node.thumb.item_id}/${node.thumb.thumb}`;
+    img.alt = node.name;
+    card.appendChild(img);
+    // 画像カードと見分けがつくよう、左上にフォルダアイコンを重ねる
+    const mark = document.createElement("span");
+    mark.className = "folder-mark";
+    mark.innerHTML = iconSvg("folder");
+    card.appendChild(mark);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "folder-empty";
+    empty.innerHTML = iconSvg(up ? "arrow-left" : "folder");
+    card.appendChild(empty);
+  }
+
+  if (!up && node.total_count > 0) {
+    const badge = document.createElement("span");
+    badge.className = "badge badge-folder";
+    badge.textContent = String(node.total_count);
+    badge.title =
+      node.total_count === node.item_count
+        ? `画像 ${node.item_count} 件`
+        : `画像 ${node.total_count} 件（このフォルダ直下は ${node.item_count} 件）`;
+    card.appendChild(badge);
+  }
+
+  const caption = document.createElement("div");
+  caption.className = "card-caption";
+  caption.textContent = up ? ".. 上へ" : node.name;
+  caption.title = up ? "親フォルダへ移動" : node.rel;
+  card.appendChild(caption);
+
+  card.addEventListener("click", () => selectFolder(node.rel));
+  if (!up) {
+    card.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showFolderMenu(node, false, e.clientX, e.clientY);
+    });
+  }
+  // 画像・フォルダのドロップで、このフォルダへ移動（左のツリーと同じ挙動）
+  setupFolderDrop(card, node.rel);
+  return card;
+}
+
 function renderGrid() {
   const grid = $("#grid");
   grid.innerHTML = "";
@@ -919,11 +990,35 @@ function renderGrid() {
     grid.innerHTML = '<p class="grid-empty">フォルダを選択してください</p>';
     return;
   }
+
+  // フォルダは検索中以外で表示（検索結果はフォルダをまたぐため並べても意味がない）
+  let folderCount = 0;
+  if (!state.query) {
+    if (state.folder !== "") {
+      const parentRel = state.folder.split("/").slice(0, -1).join("/");
+      const parent = findTreeNode(parentRel);
+      if (parent) {
+        grid.appendChild(makeFolderCard(parent, true));
+        folderCount += 1;
+      }
+    }
+    for (const child of findTreeNode(state.folder)?.children || []) {
+      grid.appendChild(makeFolderCard(child));
+      folderCount += 1;
+    }
+  }
+
   if (state.items.length === 0) {
-    let message = "画像がありません（右下の「取り込み」またはドラッグ＆ドロップ）";
-    if (state.query) message = "検索結果がありません";
-    else if (favoriteOnly) message = "お気に入りがありません（★のみ表示中）";
-    grid.innerHTML = `<p class="grid-empty">${message}</p>`;
+    // フォルダカードだけ並んでいるときは、空メッセージを出さない
+    if (folderCount === 0) {
+      let message = "画像がありません（右下の「取り込み」またはドラッグ＆ドロップ）";
+      if (state.query) message = "検索結果がありません";
+      else if (favoriteOnly) message = "お気に入りがありません（★のみ表示中）";
+      const p = document.createElement("p");
+      p.className = "grid-empty";
+      p.textContent = message;
+      grid.appendChild(p);
+    }
     return;
   }
   state.items.forEach((item, index) => {
@@ -1090,7 +1185,7 @@ function renderGrid() {
  * 働いて表示位置が数行ぶん飛ぶことがある（カード幅の折り返しが変わった直後に起きやすい）。
  */
 function updateGridSelection() {
-  for (const card of document.querySelectorAll("#grid .card")) {
+  for (const card of document.querySelectorAll("#grid .card[data-id]")) {
     const id = card.dataset.id;
     card.classList.toggle("is-selected", state.selectedIds.has(id));
     card.classList.toggle("is-focused", id === state.selectedId);
@@ -1108,7 +1203,7 @@ function updateGridSelection() {
 
 /** ★と件数バッジの表示だけを差し替える（カードを作り直さない） */
 function updateGridFavorites() {
-  for (const card of document.querySelectorAll("#grid .card")) {
+  for (const card of document.querySelectorAll("#grid .card[data-id]")) {
     const item = state.items.find((it) => it.id === card.dataset.id);
     if (!item) continue;
     const star = card.querySelector(".fav-star");
@@ -2038,7 +2133,8 @@ function nextCardIndex(cards, index, key) {
 grid.addEventListener("keydown", (e) => {
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const cards = [...grid.querySelectorAll(".card")];
+  // 矢印キーの移動対象は画像カードだけ（フォルダカードは飛ばす）
+  const cards = [...grid.querySelectorAll(".card[data-id]")];
   if (cards.length === 0) return;
   e.preventDefault();
   const current = state.selectedId

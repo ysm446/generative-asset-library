@@ -755,6 +755,48 @@ button.svc-chip:active { transform: translateY(1px); }
 /* 動画バッジと並ぶときの 2 つ目（編集画像）のバッジ */
 .card .badge.is-second { right: 66px; }
 
+/* グリッド内のフォルダカード（先頭に並ぶ。クリックでそのフォルダへ移動） */
+.card-folder .card-caption { color: var(--accent); }
+.card-folder.is-up .card-caption { color: var(--text-dim); }
+
+/* ★ボタンが無いぶん、件数バッジは右端に寄せる */
+.card-folder .badge {
+  right: 4px;
+  color: var(--text);
+}
+
+/* 代表画像の上に重ねるフォルダアイコン */
+.card-folder .folder-mark {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 2px 4px;
+  line-height: 0;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--accent);
+}
+
+.card-folder .folder-mark .ico { width: 15px; height: 15px; }
+
+/* 代表画像が無いフォルダ / 「上へ」カード */
+.card-folder .folder-empty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  background: #111;
+  color: var(--text-dim);
+}
+
+.card-folder .folder-empty .ico { width: 40%; height: 40%; }
+.card-folder:hover .folder-empty { color: var(--accent); }
+
+/* ドロップで移動できることを示す（左のツリーと同じ扱い） */
+.card.is-drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 /* ★付き動画を持つ画像は金色のバッジで示す */
 .card .badge.has-fav { color: var(--fav); }
 .card .badge .fav-mark {
