@@ -510,6 +510,70 @@ def _stream_chat(messages: list[dict[str, Any]], max_tokens: int):
                     pass
 
 
+def _strip_thinking(text: str) -> str:
+    """<think>...</think> と ```json フェンスを取り除く。"""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)```", text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    return text
+
+
+def chat_json(
+    messages: list[dict[str, Any]],
+    schema: dict[str, Any],
+    max_tokens: int = 2048,
+    temperature: float = 0.1,
+) -> Any:
+    """JSON Schema を強制して 1 回だけ推論し、パース済みの値を返す（非ストリーミング）。
+
+    llama-server の ``response_format: json_schema`` を使う。古いビルドで弾かれた
+    場合は ``json_object`` → 素の生成、の順にフォールバックする。
+    """
+    global _last_usage, _last_messages
+    if not is_loaded():
+        raise RuntimeError("モデルがロードされていません。先にモデルをロードしてください。")
+    _last_messages = messages
+
+    base_payload: dict[str, Any] = {
+        "messages": messages,
+        "temperature": temperature,
+        "top_p": 0.95,
+        "max_tokens": max_tokens,
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    formats: list[dict[str, Any] | None] = [
+        {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": schema}},
+        {"type": "json_object"},
+        None,
+    ]
+
+    last_error: Exception | None = None
+    with _generation_lock:
+        for response_format in formats:
+            payload = dict(base_payload)
+            if response_format is not None:
+                payload["response_format"] = response_format
+            try:
+                resp = requests.post(
+                    f"{_SERVER_BASE_URL}/v1/chat/completions", json=payload, timeout=600
+                )
+                if resp.status_code >= 400:
+                    last_error = RuntimeError(f"llama-server エラー {resp.status_code}: {resp.text[:300]}")
+                    continue
+                data = resp.json()
+                if data.get("usage"):
+                    _last_usage = data["usage"]
+                content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                return json.loads(_strip_thinking(content))
+            except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
+                last_error = e
+                continue
+
+    raise RuntimeError(f"JSON 応答を取得できませんでした: {last_error}")
+
+
 def get_last_usage() -> dict[str, Any] | None:
     return _last_usage
 

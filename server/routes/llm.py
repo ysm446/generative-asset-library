@@ -16,14 +16,14 @@ from server.streaming import make_sse_response
 router = APIRouter(prefix="/api/llm")
 
 
-def _remember_model(model: str) -> None:
+def remember_model(model: str) -> None:
     try:
         settings.update({"llm_model": model})
     except Exception:
         pass
 
 
-def _preferred_model(presets: dict) -> str:
+def preferred_model(presets: dict) -> str:
     """前回ロードしたモデル → 先頭のモデル、の順で既定を選ぶ。"""
     last = str(settings.load().get("llm_model") or "").strip()
     if last and last in presets:
@@ -39,7 +39,7 @@ def list_models() -> dict[str, Any]:
         "models": sorted(presets.keys()),
         "loaded": status.get("model") if status.get("ready") else None,
         "ready": status.get("ready", False),
-        "last": _preferred_model(presets),
+        "last": preferred_model(presets),
     }
 
 
@@ -53,7 +53,7 @@ async def load_model(request: Request) -> dict[str, Any]:
         msg = llm_client.load_model(model)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    _remember_model(model)
+    remember_model(model)
     return {"ok": True, "message": msg, "loaded": model}
 
 
@@ -126,7 +126,7 @@ async def video_prompt(request: Request):
         # 未ロードなら自動ロード（指定モデル → 前回モデル → 先頭）
         if not llm_client.is_loaded():
             presets = llm_client.refresh_model_presets()
-            target = requested_model if requested_model in presets else _preferred_model(presets)
+            target = requested_model if requested_model in presets else preferred_model(presets)
             if not target:
                 send({"type": "error", "content": "models/ フォルダに GGUF モデルが見つかりません。"})
                 send({"type": "done"})
@@ -134,7 +134,7 @@ async def video_prompt(request: Request):
             try:
                 send({"type": "status", "content": f"LLM モデルをロード中: {target} ..."})
                 llm_client.load_model(target)
-                _remember_model(target)
+                remember_model(target)
                 send({"type": "model_loaded", "content": target})
             except Exception as e:
                 send({"type": "error", "content": f"モデルのロードに失敗しました: {e}"})

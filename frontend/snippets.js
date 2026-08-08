@@ -7,6 +7,7 @@
 import { showInputDialog } from "/frontend/dialog.js";
 import { showContextMenu } from "/frontend/menu.js";
 import { setIconLabel } from "/frontend/icons.js";
+import { openOrganizeDialog } from "/frontend/snippet-organize.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -33,7 +34,9 @@ const snipState = {
   files: [],
   current: null, // 選択中ファイルの path
   entries: [], // フォーム編集用のエントリ一覧
-  entryIndex: -1,
+  entryIndex: -1, // フォームに出している項目（複数選択時は最後にクリックしたもの）
+  selected: new Set(), // 選択中の項目 index（複数選択）
+  anchorIndex: null, // Shift 選択の起点
   jsonMode: false, // true なら生 JSON エディタ表示
   formOk: true, // false なら解析エラーで JSON モード固定
   dirty: false,
@@ -211,7 +214,7 @@ function renderFiles() {
     });
     // 項目ドラッグの移動先（編集中のファイル自身は除く）
     row.addEventListener("dragover", (e) => {
-      if (entryDragIndex === null || f.path === snipState.current) return;
+      if (entryDragIndices.length === 0 || f.path === snipState.current) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       row.classList.add("is-drop-target");
@@ -219,9 +222,9 @@ function renderFiles() {
     row.addEventListener("dragleave", () => row.classList.remove("is-drop-target"));
     row.addEventListener("drop", (e) => {
       row.classList.remove("is-drop-target");
-      if (entryDragIndex === null || f.path === snipState.current) return;
+      if (entryDragIndices.length === 0 || f.path === snipState.current) return;
       e.preventDefault();
-      moveEntryToFile(entryDragIndex, f.path);
+      moveEntriesToFile(entryDragIndices, f.path);
     });
     el.appendChild(row);
   }
@@ -284,37 +287,43 @@ async function deleteFileByPath(path) {
 
 // 項目ドラッグ（他ファイルへの移動）------------------------------------------
 
-let entryDragIndex = null; // ドラッグ中の項目 index（現在ファイルの entries 内）
+let entryDragIndices = []; // ドラッグ中の項目 index（現在ファイルの entries 内、複数可）
 
 // 項目を別ファイルへ移動する。移動先に追記 → 元ファイルから削除の順で両方保存する
 // （元ファイルに未保存の編集があれば、それも一緒に保存される）
-async function moveEntryToFile(index, targetPath) {
-  const entry = snipState.entries[index];
-  if (!entry || !snipState.current || targetPath === snipState.current) return;
-  const label = entryLabel(entry, index);
+async function moveEntriesToFile(indices, targetPath) {
+  if (!snipState.current || targetPath === snipState.current) return;
+  // 元の並び順を保ったまま移動し、削除は後ろから行って index のずれを避ける
+  const ordered = [...new Set(indices)].sort((a, b) => a - b);
+  const moving = ordered.map((i) => snipState.entries[i]).filter(Boolean);
+  if (moving.length === 0) return;
+  const label =
+    moving.length === 1
+      ? `「${entryLabel(moving[0], ordered[0])}」`
+      : `${moving.length} 件`;
   try {
     const targetEntries = (
       await api(`/api/snippets/entries?path=${encodeURIComponent(targetPath)}`)
     ).entries;
-    targetEntries.push({ ...entry });
+    targetEntries.push(...moving.map((e) => ({ ...e })));
     await apiJson("/api/snippets/file", "PUT", {
       path: targetPath,
       content: entriesToJson(targetEntries),
     });
-    snipState.entries.splice(index, 1);
+    for (const i of [...ordered].reverse()) snipState.entries.splice(i, 1);
     const content = entriesToJson(snipState.entries);
     await apiJson("/api/snippets/file", "PUT", { path: snipState.current, content });
     snipState.rawContent = content;
     snipState.dirty = false;
     selectEntry(
-      snipState.entries.length > 0 ? Math.min(index, snipState.entries.length - 1) : -1
+      snipState.entries.length > 0 ? Math.min(ordered[0], snipState.entries.length - 1) : -1
     );
     updateSaveButton();
     snippetsChanged();
     snipState.files = (await api("/api/snippets/files")).files;
     renderFiles();
     renderEntries();
-    setStatus(`「${label}」を ${targetPath} へ移動しました`);
+    setStatus(`${label}を ${targetPath} へ移動しました`);
   } catch (e) {
     setStatus(`移動エラー: ${e.message}`);
   }
@@ -439,7 +448,8 @@ async function renderEntries() {
   snipState.entries.forEach((e, index) => {
     const row = document.createElement("div");
     row.className = "tree-node snip-entry";
-    if (index === snipState.entryIndex) row.classList.add("is-selected");
+    if (snipState.selected.has(index)) row.classList.add("is-selected");
+    if (index === snipState.entryIndex) row.classList.add("is-current");
     const label = document.createElement("span");
     label.className = "palette-tree-label";
     label.textContent = entryLabel(e, index);
@@ -448,25 +458,59 @@ async function renderEntries() {
     sub.className = "snip-entry-sub";
     sub.textContent = e.description || "";
     row.append(label, sub);
-    row.addEventListener("click", () => {
-      selectEntry(index);
+    row.addEventListener("click", (ev) => {
+      handleEntryClick(index, ev);
       renderEntries();
     });
     // 左のファイル一覧へドラッグして項目を移動（JSON 直接編集中は無効）
     row.draggable = !snipState.jsonMode;
-    row.title = "ドラッグで他のファイルへ移動";
+    row.title = "ドラッグで他のファイルへ移動（Ctrl / Shift クリックで複数選択）";
     row.addEventListener("dragstart", (ev) => {
-      entryDragIndex = index;
+      // 選択外の項目をドラッグしたら、その項目だけを掴む
+      if (!snipState.selected.has(index)) {
+        handleEntryClick(index, {});
+        renderEntries();
+      }
+      entryDragIndices = [...snipState.selected];
       ev.dataTransfer.effectAllowed = "move";
     });
     row.addEventListener("dragend", () => {
-      entryDragIndex = null;
+      entryDragIndices = [];
     });
     el.appendChild(row);
   });
 }
 
+// 項目のクリック（Ctrl でトグル、Shift で範囲選択。グリッドと同じ操作）
+function handleEntryClick(index, e) {
+  if (e.shiftKey && snipState.anchorIndex != null) {
+    const [a, b] = [snipState.anchorIndex, index].sort((x, y) => x - y);
+    snipState.selected = new Set(
+      Array.from({ length: b - a + 1 }, (_, i) => a + i)
+    );
+    setFormEntry(index);
+  } else if (e.ctrlKey || e.metaKey) {
+    if (snipState.selected.has(index)) snipState.selected.delete(index);
+    else snipState.selected.add(index);
+    snipState.anchorIndex = index;
+    // フォームは、選択が残っていれば最後にクリックしたもの
+    setFormEntry(
+      snipState.selected.has(index) ? index : [...snipState.selected].at(-1) ?? -1
+    );
+  } else {
+    selectEntry(index);
+  }
+}
+
+// 単一選択（選択をこの 1 件に置き換える）
 function selectEntry(index) {
+  snipState.selected = index >= 0 ? new Set([index]) : new Set();
+  snipState.anchorIndex = index >= 0 ? index : null;
+  setFormEntry(index);
+}
+
+// フォームに出す項目だけを切り替える（選択状態は変えない）
+function setFormEntry(index) {
   snipState.entryIndex = index;
   const e = snipState.entries[index];
   $("#snip-f-name").value = e?.name || "";
@@ -477,7 +521,11 @@ function selectEntry(index) {
   ["#snip-f-name", "#snip-f-prefix", "#snip-f-desc", "#snip-f-body"].forEach((sel) => {
     $(sel).disabled = disabled;
   });
-  $("#btn-snip-del-entry").disabled = disabled;
+  // 削除ボタンは選択している件数に合わせる（フォームの編集対象は 1 件だけ）
+  const count = snipState.selected.size;
+  const delBtn = $("#btn-snip-del-entry");
+  delBtn.disabled = count === 0;
+  setIconLabel(delBtn, "trash", count > 1 ? ` 選択した ${count} 件を削除` : " この項目を削除");
 }
 
 function bindForm() {
@@ -602,14 +650,18 @@ export function initSnippetsView() {
   });
 
   $("#btn-snip-del-entry").addEventListener("click", () => {
-    const e = snipState.entries[snipState.entryIndex];
-    if (!e) return;
-    if (!confirm(`項目「${entryLabel(e, snipState.entryIndex)}」を削除しますか？`)) return;
-    snipState.entries.splice(snipState.entryIndex, 1);
+    // 複数選択しているときは選択したものをまとめて削除する
+    const indices = [...snipState.selected].sort((a, b) => a - b);
+    if (indices.length === 0) return;
+    const first = snipState.entries[indices[0]];
+    const label =
+      indices.length === 1
+        ? `項目「${entryLabel(first, indices[0])}」`
+        : `選択した ${indices.length} 件の項目`;
+    if (!confirm(`${label}を削除しますか？`)) return;
+    for (const i of [...indices].reverse()) snipState.entries.splice(i, 1);
     selectEntry(
-      snipState.entries.length > 0
-        ? Math.max(0, snipState.entryIndex - 1)
-        : -1
+      snipState.entries.length > 0 ? Math.max(0, indices[0] - 1) : -1
     );
     markDirty();
     renderEntries();
@@ -626,6 +678,22 @@ export function initSnippetsView() {
     } catch (e) {
       setStatus(e.message);
     }
+  });
+
+  // ローカル LLM による自動整理（適用するまでファイルは変わらない）
+  $("#btn-snip-organize").addEventListener("click", () => {
+    openOrganizeDialog({
+      onApplied: async (res) => {
+        clearSelection();
+        snippetsChanged();
+        await loadFiles();
+        renderEntries();
+        const deleted = res.deleted.length ? `、${res.deleted.length} ファイルを削除` : "";
+        setStatus(
+          `${res.moved} 件のスニペットを移動しました${deleted}（バックアップ: ${res.backup}）`
+        );
+      },
+    });
   });
 
   // ファイルが 1 件も無いときでもフォルダを開けるように、一覧の余白でもメニューを出す

@@ -60,6 +60,7 @@ Forge / ComfyUI / llama-server 連携などの部品を `legacy/` から移植�
   - `python tests/test_sequences.py`（ノードグラフ・順路・ffmpeg 連結。ffmpeg 必須）
   - `python tests/test_embeddings.py`（ベクトル/ハイブリッド検索、embedding はフェイク）
   - `python tests/test_library_root.py`（ライブラリルート切替）
+  - `python tests/test_snippet_organize.py`（スニペット自動整理。LLM はフェイク）
 - UI の見た目は、テスト用サーバーを起動しヘッドレスブラウザのスクリーンショットで確認するとよい。
 - GPU が必要な実生成（Forge/ComfyUI/LLM の実行）はこの環境では検証できないことがある。
   その場合はモックで検証し、実機確認が必要な旨を作業報告に書く。

@@ -79,7 +79,13 @@
   （既存の `(word:1.2)` `((word))` `[word]` は読み取って初期値にする）。
   ラベル横のスライダーアイコンで表示のオン / オフを切り替えられる
 - 「スニペット」タブで編集：ファイル一覧 / 項目一覧（全ファイル横断検索）/
-  フォーム編集（Name・Prefix・Description・Body）。生 JSON の直接編集にも切り替え可。Ctrl+S で保存
+  フォーム編集（Name・Prefix・Description・Body）。生 JSON の直接編集にも切り替え可。Ctrl+S で保存。
+  ファイル一覧の上にファイル数と総スニペット数が出る
+- 項目は Ctrl / Shift クリックで**複数選択**でき、まとめて左のファイルへドラッグして移動・一括削除できる
+- ✨ ボタンで**ローカル LLM による自動整理**：カテゴリ（＝ファイル）を設計し直し、
+  全スニペットを振り分ける。結果は差分プレビューで確認でき、項目ごとにチェックを外して除外できる。
+  「適用」を押すまでファイルは変更されず、適用時は `data/snippet_backups/` に自動でバックアップを取る
+  （仕様の詳細は [docs/reference/snippets.md](docs/reference/snippets.md)）
 
 ### シーケンス（ノードグラフ）
 - ライブラリの動画をノードとして配置し、out→in ポートをドラッグで一本道につなぐ
@@ -161,7 +167,7 @@ tests/             スモークテスト（python tests/test_*.py で実行）
 | `/api/generation` | 画像・動画・画像編集の生成（SSE）、ワークフロー一覧、類似プロンプト |
 | `/api/llm` | モデル一覧 / ロード / アンロード、動画プロンプト生成（SSE） |
 | `/api/sequences` | シーケンス CRUD、連結書き出し（SSE） |
-| `/api/snippets` | スニペット一覧 / ファイル CRUD / エントリ取得 / フォルダ設定 |
+| `/api/snippets` | スニペット一覧 / ファイル CRUD / エントリ取得 / フォルダ設定 / 自動整理（SSE） |
 | `/api/status` | バックエンド起動状態、システムリソース |
 | `/api/shutdown` `/api/free_vram` | VRAM 解放 |
 
@@ -175,9 +181,11 @@ python tests/test_generation_service.py
 python tests/test_sequences.py
 python tests/test_embeddings.py
 python tests/test_library_root.py
+python tests/test_snippet_organize.py
 ```
 
 ## ドキュメント
 
 - [docs/library-first-redesign.md](docs/library-first-redesign.md) — 設計とマイルストーン（正本）
+- [docs/reference/snippets.md](docs/reference/snippets.md) — スニペットの形式・照合規則・API・自動整理
 - [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) — 作業エージェント向けルール

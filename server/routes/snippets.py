@@ -7,7 +7,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from server.library import snippets
+from server.library import snippet_organize, snippets
+from server.streaming import make_sse_response
 
 router = APIRouter(prefix="/api/snippets")
 
@@ -125,3 +126,60 @@ class FileRename(BaseModel):
 @router.post("/file/rename")
 def rename_file(body: FileRename) -> dict[str, str]:
     return {"path": _wrap(snippets.rename_file, body.path, body.new_path)}
+
+
+# --- 自動整理（ローカル LLM）------------------------------------------------
+
+
+class OrganizePlan(BaseModel):
+    model: str = ""
+    instruction: str = ""
+    max_categories: int = snippet_organize.MAX_CATEGORIES
+    batch_size: int = snippet_organize.BATCH_SIZE
+
+
+@router.post("/organize/plan")
+async def organize_plan(body: OrganizePlan):
+    """整理案を SSE で作る。ファイルは一切変更しない。"""
+    from server.generation import llm_client
+    from server.routes import llm as llm_routes
+
+    def worker(send) -> None:
+        try:
+            if not llm_client.is_loaded():
+                presets = llm_client.refresh_model_presets()
+                target = body.model if body.model in presets else llm_routes.preferred_model(presets)
+                if not target:
+                    send({"type": "error", "content": "models/ フォルダに GGUF モデルが見つかりません。"})
+                    return
+                send({"type": "status", "content": f"LLM モデルをロード中: {target} ..."})
+                llm_client.load_model(target)
+                llm_routes.remember_model(target)
+                send({"type": "model_loaded", "content": target})
+
+            plan = snippet_organize.build_plan(
+                send,
+                instruction=body.instruction,
+                max_categories=max(2, min(body.max_categories, 100)),
+                batch_size=max(5, min(body.batch_size, 100)),
+            )
+            send({"type": "plan", "plan": plan})
+        except Exception as e:
+            send({"type": "error", "content": str(e)})
+        finally:
+            send({"type": "done"})
+
+    return make_sse_response(worker)
+
+
+class OrganizeApply(BaseModel):
+    moves: list[dict[str, str]]
+    delete_emptied: bool = True
+
+
+@router.post("/organize/apply")
+def organize_apply(body: OrganizeApply) -> dict[str, Any]:
+    try:
+        return snippet_organize.apply_plan(body.moves, delete_emptied=body.delete_emptied)
+    except (snippet_organize.OrganizeError, snippets.SnippetError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
